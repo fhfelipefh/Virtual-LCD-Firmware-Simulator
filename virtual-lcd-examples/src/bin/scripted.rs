@@ -28,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         backlight: true,
         tearing_effect: false,
         bus_hz: 24_000_000,
+        controller: program.controller,
     };
 
     let mut lcd = VirtualLcd::new(config)?;

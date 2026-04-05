@@ -2,7 +2,8 @@ use std::thread;
 use std::time::Duration;
 
 use virtual_lcd_core::{
-    BufferingMode, InterfaceType, LcdConfig, PixelFormat, Result as LcdResult, VirtualLcd,
+    BufferingMode, ControllerModel, InterfaceType, LcdConfig, PixelFormat, Result as LcdResult,
+    VirtualLcd,
 };
 use virtual_lcd_renderer::{ScreenRect, SvgFrame, WindowRenderer};
 use virtual_lcd_sdk::Lcd;
@@ -27,6 +28,7 @@ pub fn run_scene(title: &str, scene: Scene) -> Result<(), Box<dyn std::error::Er
             fps: 30,
             frame_path,
             screen_rect,
+            controller: ControllerModel::Ili9341,
         },
         scene,
     )
@@ -39,6 +41,7 @@ pub struct RuntimeOptions<'a> {
     pub fps: u16,
     pub frame_path: &'a str,
     pub screen_rect: ScreenRect,
+    pub controller: ControllerModel,
 }
 
 pub fn run_scene_with(
@@ -57,6 +60,7 @@ pub fn run_scene_with(
         backlight: true,
         tearing_effect: false,
         bus_hz: 24_000_000,
+        controller: options.controller,
     };
 
     let mut lcd = VirtualLcd::new(config)?;
@@ -102,7 +106,9 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use virtual_lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, VirtualLcd};
+    use virtual_lcd_core::{
+        BufferingMode, ControllerModel, InterfaceType, LcdConfig, PixelFormat, VirtualLcd,
+    };
     use virtual_lcd_renderer::ScreenRect;
     use virtual_lcd_sdk::{Color, Lcd};
 
@@ -121,6 +127,7 @@ mod tests {
             backlight: true,
             tearing_effect: false,
             bus_hz: 32_000_000,
+            controller: ControllerModel::Ili9341,
         }
     }
 
@@ -155,6 +162,7 @@ mod tests {
     fn script_program_parses_and_executes_draw_commands() {
         let program = script::ScriptProgram::parse(
             "\
+controller ili9341
 canvas 16 12
 frame handheld
 gradient 0 0 16 12 0 0 0 70 80 90
@@ -169,6 +177,7 @@ text 1 1 1 200 210 220 HI
 
         assert_eq!(program.width, 16);
         assert_eq!(program.height, 12);
+        assert_eq!(program.controller, ControllerModel::Ili9341);
         assert_eq!(
             program.frame_asset(),
             ("frames/handheld_classic.svg", ScreenRect::new(32, 34, 496, 432))
@@ -190,6 +199,14 @@ text 1 1 1 200 210 220 HI
         assert!(matches!(
             script::ScriptProgram::parse("frame arcade"),
             Err(script::ScriptError::InvalidFramePreset(value)) if value == "arcade"
+        ));
+    }
+
+    #[test]
+    fn script_program_rejects_unknown_controller() {
+        assert!(matches!(
+            script::ScriptProgram::parse("controller hx8357"),
+            Err(script::ScriptError::InvalidController(value)) if value == "hx8357"
         ));
     }
 

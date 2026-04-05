@@ -1,4 +1,5 @@
 use virtual_lcd_examples::{run_scene_with, scenes, RuntimeOptions};
+use virtual_lcd_core::ControllerModel;
 use virtual_lcd_renderer::ScreenRect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fps: 30,
             frame_path: "frames/handheld_classic.svg",
             screen_rect: ScreenRect::new(32, 34, 496, 432),
+            controller: ControllerModel::Ili9341,
         },
         scenes::gameboy_boot,
     )

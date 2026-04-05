@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use virtual_lcd_core::{Result as LcdResult, VirtualLcd};
+use virtual_lcd_core::{ControllerModel, Result as LcdResult, VirtualLcd};
 use virtual_lcd_renderer::ScreenRect;
 use virtual_lcd_sdk::{Color, Lcd};
 
@@ -13,6 +13,7 @@ use crate::frame_asset_for;
 pub struct ScriptProgram {
     pub width: u16,
     pub height: u16,
+    pub controller: ControllerModel,
     pub frame: FramePreset,
     commands: Vec<Command>,
 }
@@ -40,6 +41,7 @@ pub enum ScriptError {
     MissingArgument(&'static str),
     InvalidNumber(String),
     InvalidFramePreset(String),
+    InvalidController(String),
 }
 
 impl Display for ScriptError {
@@ -49,6 +51,7 @@ impl Display for ScriptError {
             Self::MissingArgument(arg) => write!(f, "missing argument: {arg}"),
             Self::InvalidNumber(value) => write!(f, "invalid number: {value}"),
             Self::InvalidFramePreset(value) => write!(f, "invalid frame preset: {value}"),
+            Self::InvalidController(value) => write!(f, "invalid controller: {value}"),
         }
     }
 }
@@ -59,6 +62,7 @@ impl ScriptProgram {
     pub fn parse(source: &str) -> Result<Self, ScriptError> {
         let mut width = crate::LCD_WIDTH;
         let mut height = crate::LCD_HEIGHT;
+        let mut controller = ControllerModel::Ili9341;
         let mut frame = FramePreset::Auto;
         let mut commands = Vec::new();
 
@@ -77,6 +81,16 @@ impl ScriptProgram {
                 "canvas" => {
                     width = parse_u16(parts.next(), "canvas width")?;
                     height = parse_u16(parts.next(), "canvas height")?;
+                }
+                "controller" => {
+                    controller = match parts
+                        .next()
+                        .ok_or(ScriptError::MissingArgument("controller name"))?
+                    {
+                        "generic" | "generic-mipi-dcs" => ControllerModel::GenericMipiDcs,
+                        "ili9341" => ControllerModel::Ili9341,
+                        other => return Err(ScriptError::InvalidController(other.to_string())),
+                    };
                 }
                 "frame" => {
                     frame = match parts.next().ok_or(ScriptError::MissingArgument("frame preset"))? {
@@ -146,6 +160,7 @@ impl ScriptProgram {
         Ok(Self {
             width,
             height,
+            controller,
             frame,
             commands,
         })

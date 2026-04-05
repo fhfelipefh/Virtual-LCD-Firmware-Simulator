@@ -17,6 +17,15 @@ Os módulos de biblioteca do projeto já estão publicados no `crates.io`:
 - `virtual-lcd-renderer`: janela Linux que desenha o framebuffer dentro das molduras SVG da pasta `frames/`.
 - `virtual-lcd-examples`: demos e binários de exemplo para validar o renderer e o core.
 
+## Extensões de hardware
+
+O simulador suporta o conceito de extensões de hardware. 
+Cada extensão muda o comportamento do firmware virtual para representar um controlador LCD real, com registradores, comandos e leitura de estado próprios.
+
+Extensões atualmente implementadas:
+
+- `ili9341`
+
 ## Execução de testes
 
 ```bash
@@ -114,6 +123,7 @@ O bin `scripted` lê um arquivo texto linha por linha e converte isso em chamada
 Comandos suportados:
 
 - `canvas <largura> <altura>`
+- `controller generic|ili9341`
 - `frame auto|handheld`
 - `clear r g b`
 - `gradient x y w h r1 g1 b1 r2 g2 b2`
