@@ -1,10 +1,10 @@
 [package]
 name = "virtual-lcd-examples"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 default-run = "dashboard"
 
 [dependencies]
-virtual-lcd-core = { version = "0.1.0", path = "../virtual-lcd-core" }
-virtual-lcd-renderer = { version = "0.1.0", path = "../virtual-lcd-renderer" }
-virtual-lcd-sdk = { version = "0.1.0", path = "../virtual-lcd-sdk" }
+virtual-lcd-core = { version = "0.1.1", path = "../virtual-lcd-core" }
+virtual-lcd-renderer = { version = "0.1.1", path = "../virtual-lcd-renderer" }
+virtual-lcd-sdk = { version = "0.1.1", path = "../virtual-lcd-sdk" }
