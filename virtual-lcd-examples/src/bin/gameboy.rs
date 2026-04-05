@@ -1,5 +1,5 @@
-use lcd_examples::{run_scene_with, scenes, RuntimeOptions};
-use lcd_renderer::ScreenRect;
+use virtual_lcd_examples::{run_scene_with, scenes, RuntimeOptions};
+use virtual_lcd_renderer::ScreenRect;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_scene_with(

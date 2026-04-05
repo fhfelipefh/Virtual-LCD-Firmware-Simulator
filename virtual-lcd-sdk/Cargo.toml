@@ -1,5 +1,5 @@
 [package]
-name = "lcd-sdk"
+name = "virtual-lcd-sdk"
 version = "0.1.0"
 
 edition = "2024"
@@ -8,7 +8,7 @@ description = "Shared LCD traits and color types for the Virtual LCD Firmware Si
 license = "MIT"
 repository = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
 homepage = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
-documentation = "https://docs.rs/lcd-sdk"
+documentation = "https://docs.rs/virtual-lcd-sdk"
 readme = "README.md"
 keywords = ["lcd", "embedded", "display", "driver", "simulator"]
 

@@ -434,35 +434,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "lcd-core"
-version = "0.1.0"
-dependencies = [
- "lcd-sdk",
-]
-
-[[package]]
-name = "lcd-examples"
-version = "0.1.0"
-dependencies = [
- "lcd-core",
- "lcd-renderer",
- "lcd-sdk",
-]
-
-[[package]]
-name = "lcd-renderer"
-version = "0.1.0"
-dependencies = [
- "lcd-core",
- "minifb",
- "resvg",
-]
-
-[[package]]
-name = "lcd-sdk"
-version = "0.1.0"
-
-[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1078,6 +1049,35 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtual-lcd-core"
+version = "0.1.0"
+dependencies = [
+ "virtual-lcd-sdk",
+]
+
+[[package]]
+name = "virtual-lcd-examples"
+version = "0.1.0"
+dependencies = [
+ "virtual-lcd-core",
+ "virtual-lcd-renderer",
+ "virtual-lcd-sdk",
+]
+
+[[package]]
+name = "virtual-lcd-renderer"
+version = "0.1.0"
+dependencies = [
+ "minifb",
+ "resvg",
+ "virtual-lcd-core",
+]
+
+[[package]]
+name = "virtual-lcd-sdk"
+version = "0.1.0"
 
 [[package]]
 name = "wasip2"

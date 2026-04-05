@@ -1,5 +1,5 @@
-use lcd_core::{Result as LcdResult, VirtualLcd};
-use lcd_sdk::{Color, Lcd};
+use virtual_lcd_core::{Result as LcdResult, VirtualLcd};
+use virtual_lcd_sdk::{Color, Lcd};
 
 use crate::draw::{
     draw_blip, draw_circle, draw_line, draw_panel, draw_particles, draw_rect_outline,

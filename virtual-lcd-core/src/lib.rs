@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-pub use lcd_sdk::{Color, Lcd, LcdBus, PinId};
+pub use virtual_lcd_sdk::{Color, Lcd, LcdBus, PinId};
 
 pub type Result<T> = std::result::Result<T, LcdError>;
 

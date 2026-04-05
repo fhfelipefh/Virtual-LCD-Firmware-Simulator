@@ -1,3 +1,8 @@
 [workspace]
-members = ["lcd-core", "lcd-sdk", "lcd-renderer", "lcd-examples"]
+members = [
+    "virtual-lcd-core",
+    "virtual-lcd-sdk",
+    "virtual-lcd-renderer",
+    "virtual-lcd-examples",
+]
 resolver = "2"

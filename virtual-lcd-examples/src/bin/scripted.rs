@@ -3,15 +3,15 @@ use std::fs;
 use std::thread;
 use std::time::Duration;
 
-use lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, VirtualLcd};
-use lcd_examples::script::ScriptProgram;
-use lcd_renderer::{SvgFrame, WindowRenderer};
-use lcd_sdk::Lcd;
+use virtual_lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, VirtualLcd};
+use virtual_lcd_examples::script::ScriptProgram;
+use virtual_lcd_renderer::{SvgFrame, WindowRenderer};
+use virtual_lcd_sdk::Lcd;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = env::args()
         .nth(1)
-        .unwrap_or_else(|| "lcd-examples/scripts/panel.lcd".to_string());
+        .unwrap_or_else(|| "virtual-lcd-examples/scripts/panel.lcd".to_string());
     let source = fs::read_to_string(&path)?;
     let program = ScriptProgram::parse(&source)?;
     let (frame_path, screen_rect) = program.frame_asset();

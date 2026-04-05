@@ -1,9 +1,11 @@
 use std::thread;
 use std::time::Duration;
 
-use lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, Result as LcdResult, VirtualLcd};
-use lcd_renderer::{ScreenRect, SvgFrame, WindowRenderer};
-use lcd_sdk::Lcd;
+use virtual_lcd_core::{
+    BufferingMode, InterfaceType, LcdConfig, PixelFormat, Result as LcdResult, VirtualLcd,
+};
+use virtual_lcd_renderer::{ScreenRect, SvgFrame, WindowRenderer};
+use virtual_lcd_sdk::Lcd;
 
 pub mod draw;
 pub mod font;
@@ -100,9 +102,9 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, VirtualLcd};
-    use lcd_renderer::ScreenRect;
-    use lcd_sdk::{Color, Lcd};
+    use virtual_lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat, VirtualLcd};
+    use virtual_lcd_renderer::ScreenRect;
+    use virtual_lcd_sdk::{Color, Lcd};
 
     use super::{frame_asset_for, scenes, script};
 

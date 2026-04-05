@@ -1,5 +1,5 @@
-use lcd_core::{Result as LcdResult, VirtualLcd};
-use lcd_sdk::{Color, Lcd};
+use virtual_lcd_core::{Result as LcdResult, VirtualLcd};
+use virtual_lcd_sdk::{Color, Lcd};
 
 use crate::font;
 use crate::{LCD_HEIGHT, LCD_WIDTH};

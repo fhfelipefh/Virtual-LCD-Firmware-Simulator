@@ -1,5 +1,5 @@
 [package]
-name = "lcd-core"
+name = "virtual-lcd-core"
 version = "0.1.0"
 
 edition = "2024"
@@ -8,9 +8,9 @@ description = "Virtual LCD firmware core library for Rust projects."
 license = "MIT"
 repository = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
 homepage = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
-documentation = "https://docs.rs/lcd-core"
+documentation = "https://docs.rs/virtual-lcd-core"
 readme = "README.md"
 keywords = ["lcd", "embedded", "display", "framebuffer", "simulator"]
 
 [dependencies]
-lcd-sdk = { version = "0.1.0", path = "../lcd-sdk" }
+virtual-lcd-sdk = { version = "0.1.0", path = "../virtual-lcd-sdk" }

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use lcd_core::Framebuffer;
+use virtual_lcd_core::Framebuffer;
 use minifb::{Key, Scale, ScaleMode, Window, WindowOptions};
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
@@ -201,7 +201,7 @@ fn composite_framebuffer(
 #[cfg(test)]
 mod tests {
     use super::{composite_framebuffer, ScreenRect};
-    use lcd_core::{Color, Framebuffer};
+    use virtual_lcd_core::{Color, Framebuffer};
 
     #[test]
     fn composite_writes_inside_screen_rect() {

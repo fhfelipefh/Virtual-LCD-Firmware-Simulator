@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
 
-use lcd_core::{Result as LcdResult, VirtualLcd};
-use lcd_renderer::ScreenRect;
-use lcd_sdk::{Color, Lcd};
+use virtual_lcd_core::{Result as LcdResult, VirtualLcd};
+use virtual_lcd_renderer::ScreenRect;
+use virtual_lcd_sdk::{Color, Lcd};
 
 use crate::draw::{
     draw_circle, draw_line, draw_rect_outline, draw_text, fill_vertical_gradient, fill_rect_safe,

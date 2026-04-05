@@ -1,6 +1,6 @@
-# lcd-core
+# virtual-lcd-core
 
-`lcd-core` is the main simulation engine for the Virtual LCD Firmware Simulator project.
+`virtual-lcd-core` is the main simulation engine for the Virtual LCD Firmware Simulator project.
 
 It provides:
 
@@ -11,7 +11,7 @@ It provides:
 
 ```toml
 [dependencies]
-lcd-core = "0.1.0"
+virtual-lcd-core = "0.1"
 ```
 
 Repository: <https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator>
