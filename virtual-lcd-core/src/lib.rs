@@ -13,6 +13,7 @@ pub type Result<T> = std::result::Result<T, LcdError>;
 pub enum ControllerModel {
     GenericMipiDcs,
     Ili9341,
+    Ssd1306,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +63,20 @@ impl LcdConfig {
 
         if self.bus_hz == 0 {
             return Err(LcdError::InvalidConfig("bus_hz must be non-zero"));
+        }
+
+        if matches!(self.controller, ControllerModel::Ssd1306) {
+            if self.width > 128 {
+                return Err(LcdError::InvalidConfig("ssd1306 width must be 128 pixels or smaller"));
+            }
+
+            if self.height > 64 {
+                return Err(LcdError::InvalidConfig("ssd1306 height must be 64 pixels or smaller"));
+            }
+
+            if self.height % 8 != 0 {
+                return Err(LcdError::InvalidConfig("ssd1306 height must be a multiple of 8"));
+            }
         }
 
         Ok(())
@@ -232,6 +247,7 @@ impl LcdState {
 enum ControllerRuntime {
     Generic,
     Ili9341(Ili9341State),
+    Ssd1306(Ssd1306State),
 }
 
 impl ControllerRuntime {
@@ -239,12 +255,15 @@ impl ControllerRuntime {
         match model {
             ControllerModel::GenericMipiDcs => Self::Generic,
             ControllerModel::Ili9341 => Self::Ili9341(Ili9341State::new(config)),
+            ControllerModel::Ssd1306 => Self::Ssd1306(Ssd1306State::new(config)),
         }
     }
 
     fn reset(&mut self, config: &LcdConfig) {
-        if let Self::Ili9341(state) = self {
-            *state = Ili9341State::new(config);
+        match self {
+            Self::Generic => {}
+            Self::Ili9341(state) => *state = Ili9341State::new(config),
+            Self::Ssd1306(state) => *state = Ssd1306State::new(config),
         }
     }
 
@@ -252,6 +271,14 @@ impl ControllerRuntime {
         match self {
             Self::Generic => fallback.bytes_per_pixel(),
             Self::Ili9341(state) => state.interface_pixel_format().bytes_per_pixel(),
+            Self::Ssd1306(_) => PixelFormat::Mono1.bytes_per_pixel(),
+        }
+    }
+
+    fn native_frame_bytes(&self, config: &LcdConfig) -> usize {
+        match self {
+            Self::Generic | Self::Ili9341(_) => config.full_frame_bytes(),
+            Self::Ssd1306(state) => state.gddram.len(),
         }
     }
 }
@@ -411,6 +438,307 @@ impl Ili9341State {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ssd1306AddressingMode {
+    Horizontal,
+    Vertical,
+    Page,
+}
+
+#[derive(Debug)]
+struct Ssd1306State {
+    gddram: Vec<u8>,
+    memory_mode: Ssd1306AddressingMode,
+    column_start: u8,
+    column_end: u8,
+    page_start: u8,
+    page_end: u8,
+    column: u8,
+    page: u8,
+    start_line: u8,
+    display_offset: u8,
+    contrast: u8,
+    multiplex_ratio: u8,
+    clock_div: u8,
+    precharge: u8,
+    com_pins: u8,
+    vcomh: u8,
+    charge_pump: u8,
+    segment_remap: bool,
+    com_scan_reverse: bool,
+    entire_display_on: bool,
+    inverse_display: bool,
+    scroll_enabled: bool,
+    raw_registers: BTreeMap<u8, Vec<u8>>,
+}
+
+impl Ssd1306State {
+    fn new(config: &LcdConfig) -> Self {
+        let pages = (config.height / 8).max(1);
+        Self {
+            gddram: vec![0x00; config.width as usize * pages as usize],
+            memory_mode: Ssd1306AddressingMode::Page,
+            column_start: 0,
+            column_end: config.width.saturating_sub(1) as u8,
+            page_start: 0,
+            page_end: pages.saturating_sub(1) as u8,
+            column: 0,
+            page: 0,
+            start_line: 0,
+            display_offset: 0,
+            contrast: 0x7F,
+            multiplex_ratio: config.height.saturating_sub(1) as u8,
+            clock_div: 0x80,
+            precharge: 0xF1,
+            com_pins: if config.height > 32 { 0x12 } else { 0x02 },
+            vcomh: 0x20,
+            charge_pump: 0x14,
+            segment_remap: false,
+            com_scan_reverse: false,
+            entire_display_on: false,
+            inverse_display: false,
+            scroll_enabled: false,
+            raw_registers: BTreeMap::new(),
+        }
+    }
+
+    fn normalize_color(&self, color: Color) -> Color {
+        if color.luminance() >= 128 {
+            Color::WHITE
+        } else {
+            Color::BLACK
+        }
+    }
+
+    fn pages(&self, config: &LcdConfig) -> u8 {
+        (config.height / 8).max(1) as u8
+    }
+
+    fn clamp_column(&self, column: u8, config: &LcdConfig) -> u8 {
+        column.min(config.width.saturating_sub(1) as u8)
+    }
+
+    fn clamp_page(&self, page: u8, config: &LcdConfig) -> u8 {
+        page.min(self.pages(config).saturating_sub(1))
+    }
+
+    fn gddram_index(&self, x: u16, page: u8, config: &LcdConfig) -> Option<usize> {
+        if x >= config.width || page >= self.pages(config) {
+            return None;
+        }
+
+        Some(page as usize * config.width as usize + x as usize)
+    }
+
+    fn sync_gddram_byte_to_frame(
+        &self,
+        frame: &mut Framebuffer,
+        column: u8,
+        page: u8,
+        config: &LcdConfig,
+    ) -> Result<()> {
+        let x = column as u16;
+        let Some(index) = self.gddram_index(x, page, config) else {
+            return Ok(());
+        };
+        let byte = self.gddram[index];
+        let base_y = page as u16 * 8;
+
+        for bit in 0..8u16 {
+            let y = base_y + bit;
+            if y >= config.height {
+                break;
+            }
+
+            let color = if (byte >> bit) & 0x01 != 0 {
+                Color::WHITE
+            } else {
+                Color::BLACK
+            };
+            frame.set_pixel(x, y, color)?;
+        }
+
+        Ok(())
+    }
+
+    fn set_native_pixel(&mut self, x: u16, y: u16, on: bool, config: &LcdConfig) -> Result<()> {
+        let page = (y / 8) as u8;
+        let bit = (y % 8) as u8;
+        let index = self
+            .gddram_index(x, page, config)
+            .ok_or(LcdError::OutOfBounds)?;
+
+        if on {
+            self.gddram[index] |= 1 << bit;
+        } else {
+            self.gddram[index] &= !(1 << bit);
+        }
+
+        Ok(())
+    }
+
+    fn sync_pixel_from_color(
+        &mut self,
+        frame: &mut Framebuffer,
+        x: u16,
+        y: u16,
+        color: Color,
+        config: &LcdConfig,
+    ) -> Result<()> {
+        let mono = self.normalize_color(color);
+        frame.set_pixel(x, y, mono)?;
+        self.set_native_pixel(x, y, mono == Color::WHITE, config)
+    }
+
+    fn sync_window_from_frame(
+        &mut self,
+        frame: &mut Framebuffer,
+        window: DrawWindow,
+        config: &LcdConfig,
+    ) -> Result<()> {
+        for y in window.y..window.y + window.height {
+            for x in window.x..window.x + window.width {
+                let color = frame.get_pixel(x, y).unwrap_or(Color::BLACK);
+                self.sync_pixel_from_color(frame, x, y, color, config)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn set_column_address(&mut self, start: u8, end: u8, config: &LcdConfig) {
+        self.column_start = self.clamp_column(start, config);
+        self.column_end = self.clamp_column(end, config).max(self.column_start);
+        self.column = self.column_start;
+    }
+
+    fn set_page_address(&mut self, start: u8, end: u8, config: &LcdConfig) {
+        self.page_start = self.clamp_page(start, config);
+        self.page_end = self.clamp_page(end, config).max(self.page_start);
+        self.page = self.page_start;
+    }
+
+    fn set_page_mode_page(&mut self, page: u8, config: &LcdConfig) {
+        self.page = self.clamp_page(page, config);
+    }
+
+    fn set_page_mode_lower_column(&mut self, lower: u8, config: &LcdConfig) {
+        self.column = self.clamp_column((self.column & 0xF0) | (lower & 0x0F), config);
+    }
+
+    fn set_page_mode_upper_column(&mut self, upper: u8, config: &LcdConfig) {
+        self.column = self.clamp_column((self.column & 0x0F) | ((upper & 0x0F) << 4), config);
+    }
+
+    fn advance_address(&mut self, config: &LcdConfig) {
+        match self.memory_mode {
+            Ssd1306AddressingMode::Horizontal => {
+                if self.column >= self.column_end {
+                    self.column = self.column_start;
+                    if self.page >= self.page_end {
+                        self.page = self.page_start;
+                    } else {
+                        self.page += 1;
+                    }
+                } else {
+                    self.column += 1;
+                }
+            }
+            Ssd1306AddressingMode::Vertical => {
+                if self.page >= self.page_end {
+                    self.page = self.page_start;
+                    if self.column >= self.column_end {
+                        self.column = self.column_start;
+                    } else {
+                        self.column += 1;
+                    }
+                } else {
+                    self.page += 1;
+                }
+            }
+            Ssd1306AddressingMode::Page => {
+                let max_column = config.width.saturating_sub(1) as u8;
+                if self.column >= max_column {
+                    self.column = 0;
+                } else {
+                    self.column += 1;
+                }
+            }
+        }
+    }
+
+    fn write_ram_bytes(
+        &mut self,
+        frame: &mut Framebuffer,
+        data: &[u8],
+        config: &LcdConfig,
+    ) -> Result<usize> {
+        for byte in data.iter().copied() {
+            let column = self.clamp_column(self.column, config);
+            let page = self.clamp_page(self.page, config);
+            if let Some(index) = self.gddram_index(column as u16, page, config) {
+                self.gddram[index] = byte;
+                self.sync_gddram_byte_to_frame(frame, column, page, config)?;
+            }
+            self.advance_address(config);
+        }
+
+        Ok(data.len())
+    }
+
+    fn apply_visible_transform(
+        &self,
+        visible: &mut Framebuffer,
+        state: &LcdState,
+        config: &LcdConfig,
+    ) -> Result<()> {
+        if !state.display_on || state.backlight == 0 {
+            visible.clear(Color::BLACK);
+            return Ok(());
+        }
+
+        let height = config.height;
+        let width = config.width;
+
+        for y in 0..height {
+            let logical_y = if self.com_scan_reverse {
+                height - 1 - y
+            } else {
+                y
+            };
+            let memory_y =
+                (logical_y + self.start_line as u16 + self.display_offset as u16) % height.max(1);
+
+            for x in 0..width {
+                let memory_x = if self.segment_remap {
+                    width - 1 - x
+                } else {
+                    x
+                };
+
+                let pixel_on = if self.entire_display_on {
+                    true
+                } else {
+                    let page = (memory_y / 8) as u8;
+                    let bit = (memory_y % 8) as u8;
+                    let Some(index) = self.gddram_index(memory_x, page, config) else {
+                        continue;
+                    };
+                    let mut on = (self.gddram[index] >> bit) & 0x01 != 0;
+                    if self.inverse_display {
+                        on = !on;
+                    }
+                    on
+                };
+
+                visible.set_pixel(x, y, if pixel_on { Color::WHITE } else { Color::BLACK })?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct VerticalScrollState {
     top_fixed_area: u16,
@@ -466,6 +794,17 @@ enum RegisterKind {
     Brightness,
     ControlDisplay,
     InterfaceControl,
+    Ssd1306MemoryMode,
+    Ssd1306ColumnAddress,
+    Ssd1306PageAddress,
+    Ssd1306Contrast,
+    Ssd1306MultiplexRatio,
+    Ssd1306DisplayOffset,
+    Ssd1306ClockDiv,
+    Ssd1306Precharge,
+    Ssd1306Compins,
+    Ssd1306Vcomh,
+    Ssd1306ChargePump,
     Raw(u8),
 }
 
@@ -791,8 +1130,10 @@ impl VirtualLcd {
         for (index, color) in pixels.iter().copied().enumerate() {
             let dx = (index % window.width as usize) as u16;
             let dy = (index / window.width as usize) as u16;
+            let color = self.normalize_high_level_color(color);
             self.back_buffer
                 .set_pixel(window.x + dx, window.y + dy, color)?;
+            self.sync_controller_pixel(window.x + dx, window.y + dy, color)?;
         }
 
         self.schedule_visible_update(expected * self.config.pixel_format.bytes_per_pixel())
@@ -891,6 +1232,34 @@ impl VirtualLcd {
                     &self.config,
                 )?;
             }
+            ControllerRuntime::Ssd1306(controller) => {
+                controller.apply_visible_transform(
+                    &mut self.front_buffer,
+                    &self.state,
+                    &self.config,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_high_level_color(&self, color: Color) -> Color {
+        match &self.controller {
+            ControllerRuntime::Ssd1306(controller) => controller.normalize_color(color),
+            _ => color,
+        }
+    }
+
+    fn sync_controller_pixel(&mut self, x: u16, y: u16, color: Color) -> Result<()> {
+        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+            controller.sync_pixel_from_color(&mut self.back_buffer, x, y, color, &self.config)?;
+        }
+        Ok(())
+    }
+
+    fn sync_controller_window(&mut self, window: DrawWindow) -> Result<()> {
+        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+            controller.sync_window_from_frame(&mut self.back_buffer, window, &self.config)?;
         }
         Ok(())
     }
@@ -949,11 +1318,17 @@ impl VirtualLcd {
                     ControllerRuntime::Ili9341(controller) => {
                         controller.decode_interface_color(&progress.partial_pixel[..bytes_per_pixel])
                     }
+                    ControllerRuntime::Ssd1306(_) => {
+                        unreachable!("ssd1306 does not use MIPI-style memory write sequencing")
+                    }
                 };
                 let (x, y) = match &self.controller {
                     ControllerRuntime::Generic => progress.current_coords(),
                     ControllerRuntime::Ili9341(controller) => {
                         controller.write_pixel_coords(progress.window, progress.next_pixel, &self.config)?
+                    }
+                    ControllerRuntime::Ssd1306(_) => {
+                        unreachable!("ssd1306 does not use MIPI-style memory write sequencing")
                     }
                 };
                 self.back_buffer.set_pixel(x, y, color)?;
@@ -963,6 +1338,19 @@ impl VirtualLcd {
         }
 
         Ok(data.len())
+    }
+
+    fn process_ssd1306_ram_write(&mut self, data: &[u8]) -> Result<usize> {
+        self.ensure_memory_access()?;
+
+        match &mut self.controller {
+            ControllerRuntime::Ssd1306(controller) => {
+                controller.write_ram_bytes(&mut self.back_buffer, data, &self.config)
+            }
+            _ => Err(LcdError::BusViolation(
+                "ssd1306 RAM write requested for a non-ssd1306 controller",
+            )),
+        }
     }
 
     fn process_register_write(&mut self, write: RegisterWrite, data: &[u8]) -> Result<()> {
@@ -1007,7 +1395,50 @@ impl VirtualLcd {
             (ControllerRuntime::Ili9341(controller), RegisterKind::Raw(cmd)) => {
                 controller.raw_registers.insert(cmd, data.to_vec());
             }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306MemoryMode) => {
+                controller.memory_mode = match data[0] & 0x03 {
+                    0x00 => Ssd1306AddressingMode::Horizontal,
+                    0x01 => Ssd1306AddressingMode::Vertical,
+                    _ => Ssd1306AddressingMode::Page,
+                };
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306ColumnAddress) => {
+                controller.set_column_address(data[0], data[1], &self.config);
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306PageAddress) => {
+                controller.set_page_address(data[0], data[1], &self.config);
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306Contrast) => {
+                controller.contrast = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306MultiplexRatio) => {
+                controller.multiplex_ratio = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306DisplayOffset) => {
+                controller.display_offset = data[0] & 0x3F;
+                refresh_visible = true;
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306ClockDiv) => {
+                controller.clock_div = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306Precharge) => {
+                controller.precharge = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306Compins) => {
+                controller.com_pins = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306Vcomh) => {
+                controller.vcomh = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306ChargePump) => {
+                controller.charge_pump = data[0];
+            }
+            (ControllerRuntime::Ssd1306(controller), RegisterKind::Raw(cmd)) => {
+                controller.raw_registers.insert(cmd, data.to_vec());
+            }
             (ControllerRuntime::Generic, _) => {}
+            (ControllerRuntime::Ili9341(_), _) => {}
+            (ControllerRuntime::Ssd1306(_), _) => {}
         }
 
         if refresh_visible {
@@ -1036,19 +1467,24 @@ impl Lcd for VirtualLcd {
 
     fn clear(&mut self, color: Color) -> Result<()> {
         self.ensure_ready_for_graphics()?;
-        self.back_buffer.clear(color);
+        self.back_buffer.clear(self.normalize_high_level_color(color));
+        self.sync_controller_window(DrawWindow::full(&self.config))?;
         Ok(())
     }
 
     fn draw_pixel(&mut self, x: u16, y: u16, color: Color) -> Result<()> {
         self.ensure_ready_for_graphics()?;
-        self.back_buffer.set_pixel(x, y, color)
+        let color = self.normalize_high_level_color(color);
+        self.back_buffer.set_pixel(x, y, color)?;
+        self.sync_controller_pixel(x, y, color)
     }
 
     fn fill_rect(&mut self, x: u16, y: u16, width: u16, height: u16, color: Color) -> Result<()> {
         self.ensure_ready_for_graphics()?;
         let window = DrawWindow::from_origin(x, y, width, height, &self.config)?;
-        self.back_buffer.fill_rect(window, color)
+        self.back_buffer
+            .fill_rect(window, self.normalize_high_level_color(color))?;
+        self.sync_controller_window(window)
     }
 
     fn present(&mut self) -> Result<()> {
@@ -1058,7 +1494,7 @@ impl Lcd for VirtualLcd {
             return Err(LcdError::BusViolation("cannot present while a bus transaction is active"));
         }
 
-        self.schedule_visible_update(self.config.full_frame_bytes())
+        self.schedule_visible_update(self.controller.native_frame_bytes(&self.config))
     }
 }
 
@@ -1194,6 +1630,180 @@ impl LcdBus for VirtualLcd {
                     }
                 }
             },
+            ControllerModel::Ssd1306 => {
+                self.state.initialized = true;
+                self.state.sleeping = false;
+
+                match cmd {
+                    0x00..=0x0F => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.set_page_mode_lower_column(cmd & 0x0F, &self.config);
+                        }
+                    }
+                    0x10..=0x1F => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.set_page_mode_upper_column(cmd & 0x0F, &self.config);
+                        }
+                    }
+                    0x20 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306MemoryMode,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0x21 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306ColumnAddress,
+                            allowed_lengths: &[2],
+                        });
+                    }
+                    0x22 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306PageAddress,
+                            allowed_lengths: &[2],
+                        });
+                    }
+                    0x26 | 0x27 | 0x29 | 0x2A => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Raw(cmd),
+                            allowed_lengths: &[6],
+                        });
+                    }
+                    0x2E => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.scroll_enabled = false;
+                        }
+                    }
+                    0x2F => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.scroll_enabled = true;
+                        }
+                    }
+                    0x40..=0x7F => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.start_line = cmd & 0x3F;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0x81 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306Contrast,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0x8D => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306ChargePump,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xA0 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.segment_remap = false;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA1 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.segment_remap = true;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA3 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Raw(cmd),
+                            allowed_lengths: &[2],
+                        });
+                    }
+                    0xA4 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.entire_display_on = false;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA5 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.entire_display_on = true;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA6 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.inverse_display = false;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA7 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.inverse_display = true;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xA8 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306MultiplexRatio,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xAE => {
+                        self.state.display_on = false;
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xAF => {
+                        self.state.display_on = true;
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xB0..=0xB7 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.set_page_mode_page(cmd & 0x0F, &self.config);
+                        }
+                    }
+                    0xC0 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.com_scan_reverse = false;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xC8 => {
+                        if let ControllerRuntime::Ssd1306(controller) = &mut self.controller {
+                            controller.com_scan_reverse = true;
+                        }
+                        self.rebuild_visible_frame()?;
+                    }
+                    0xD3 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306DisplayOffset,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xD5 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306ClockDiv,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xD9 => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306Precharge,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xDA => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306Compins,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xDB => {
+                        self.pending_write = PendingWrite::Register(RegisterWrite {
+                            register: RegisterKind::Ssd1306Vcomh,
+                            allowed_lengths: &[1],
+                        });
+                    }
+                    0xE3 => {}
+                    other => return Err(LcdError::InvalidCommand(other)),
+                }
+            }
         }
 
         Ok(())
@@ -1204,7 +1814,17 @@ impl LcdBus for VirtualLcd {
 
         let pending = std::mem::replace(&mut self.pending_write, PendingWrite::None);
         match pending {
-            PendingWrite::None => Err(LcdError::BusViolation("data write without an active command")),
+            PendingWrite::None => {
+                if matches!(self.controller, ControllerRuntime::Ssd1306(_)) {
+                    let transferred = self.process_ssd1306_ram_write(data)?;
+                    if !self.has_pending_frame() {
+                        self.schedule_visible_update(transferred)?;
+                    }
+                    Ok(())
+                } else {
+                    Err(LcdError::BusViolation("data write without an active command"))
+                }
+            }
             PendingWrite::Column(mut accumulator) => {
                 let consumed = self.process_address_data(&mut accumulator, data, true)?;
                 if consumed != data.len() {
@@ -1424,6 +2044,23 @@ mod tests {
         }
     }
 
+    fn fast_ssd1306_config() -> LcdConfig {
+        LcdConfig {
+            width: 8,
+            height: 8,
+            pixel_format: PixelFormat::Mono1,
+            fps: 1_000,
+            interface: InterfaceType::Spi4Wire,
+            orientation: 0,
+            vsync: false,
+            buffering: BufferingMode::Double,
+            backlight: true,
+            tearing_effect: false,
+            bus_hz: 32_000_000,
+            controller: ControllerModel::Ssd1306,
+        }
+    }
+
     fn wait_until_visible(lcd: &mut VirtualLcd) {
         for _ in 0..16 {
             if lcd.tick() {
@@ -1438,6 +2075,15 @@ mod tests {
         lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
         lcd.write_command(0x11).expect("sleep out should succeed");
         lcd.write_command(0x29).expect("display on should succeed");
+        lcd
+    }
+
+    fn bus_ready_ssd1306() -> VirtualLcd {
+        let mut lcd = VirtualLcd::new(fast_ssd1306_config()).expect("config should be valid");
+        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.write_command(0xAE).expect("display off should succeed");
+        write_command_with_data(&mut lcd, 0x20, &[0x02]);
+        lcd.write_command(0xAF).expect("display on should succeed");
         lcd
     }
 
@@ -1575,6 +2221,82 @@ mod tests {
     }
 
     #[test]
+    fn ssd1306_common_init_sequence_is_accepted() {
+        let mut lcd = VirtualLcd::new(fast_ssd1306_config()).expect("config should be valid");
+        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+
+        lcd.write_command(0xAE).expect("display off should succeed");
+        write_command_with_data(&mut lcd, 0xD5, &[0x80]);
+        write_command_with_data(&mut lcd, 0xA8, &[0x3F]);
+        write_command_with_data(&mut lcd, 0xD3, &[0x00]);
+        lcd.write_command(0x40).expect("start line should succeed");
+        write_command_with_data(&mut lcd, 0x8D, &[0x14]);
+        write_command_with_data(&mut lcd, 0x20, &[0x00]);
+        lcd.write_command(0xA1).expect("segment remap should succeed");
+        lcd.write_command(0xC8).expect("com scan reverse should succeed");
+        write_command_with_data(&mut lcd, 0xDA, &[0x12]);
+        write_command_with_data(&mut lcd, 0x81, &[0xCF]);
+        write_command_with_data(&mut lcd, 0xD9, &[0xF1]);
+        write_command_with_data(&mut lcd, 0xDB, &[0x40]);
+        lcd.write_command(0xA4).expect("display follow ram should succeed");
+        lcd.write_command(0xA6).expect("normal display should succeed");
+        lcd.write_command(0xAF).expect("display on should succeed");
+    }
+
+    #[test]
+    fn ssd1306_page_writes_update_mono_pixels() {
+        let mut lcd = bus_ready_ssd1306();
+
+        lcd.write_command(0xB0).expect("page select should succeed");
+        lcd.write_command(0x00).expect("lower column should succeed");
+        lcd.write_command(0x10).expect("upper column should succeed");
+        lcd.write_data(&[0b0000_0011, 0b0000_0100])
+            .expect("gddram write should succeed");
+
+        wait_until_visible(&mut lcd);
+
+        assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::WHITE));
+        assert_eq!(lcd.visible_frame().get_pixel(0, 1), Some(Color::WHITE));
+        assert_eq!(lcd.visible_frame().get_pixel(1, 2), Some(Color::WHITE));
+        assert_eq!(lcd.visible_frame().get_pixel(1, 1), Some(Color::BLACK));
+    }
+
+    #[test]
+    fn ssd1306_high_level_drawing_quantizes_to_monochrome() {
+        let mut lcd = VirtualLcd::new(fast_ssd1306_config()).expect("config should be valid");
+        lcd.init().expect("init should succeed");
+
+        lcd.draw_pixel(0, 0, Color::rgb(240, 240, 240))
+            .expect("bright pixel should succeed");
+        lcd.draw_pixel(1, 0, Color::rgb(20, 20, 20))
+            .expect("dark pixel should succeed");
+        lcd.present().expect("present should succeed");
+        wait_until_visible(&mut lcd);
+
+        assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::WHITE));
+        assert_eq!(lcd.visible_frame().get_pixel(1, 0), Some(Color::BLACK));
+    }
+
+    #[test]
+    fn ssd1306_display_start_line_and_remap_affect_visible_output() {
+        let mut lcd = bus_ready_ssd1306();
+        lcd.write_command(0xB0).expect("page select should succeed");
+        lcd.write_command(0x00).expect("lower column should succeed");
+        lcd.write_command(0x10).expect("upper column should succeed");
+        lcd.write_data(&[0b0000_0001]).expect("gddram write should succeed");
+        wait_until_visible(&mut lcd);
+
+        assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::WHITE));
+
+        lcd.write_command(0x41).expect("start line shift should succeed");
+        assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::BLACK));
+        assert_eq!(lcd.visible_frame().get_pixel(0, 7), Some(Color::WHITE));
+
+        lcd.write_command(0xA1).expect("segment remap should succeed");
+        assert_eq!(lcd.visible_frame().get_pixel(7, 7), Some(Color::WHITE));
+    }
+
+    #[test]
     fn invalid_config_rejects_zero_dimensions() {
         let mut config = fast_config();
         config.width = 0;
@@ -1582,6 +2304,17 @@ mod tests {
         assert!(matches!(
             VirtualLcd::new(config),
             Err(LcdError::InvalidConfig("display dimensions must be non-zero"))
+        ));
+    }
+
+    #[test]
+    fn invalid_ssd1306_config_rejects_non_paged_height() {
+        let mut config = fast_ssd1306_config();
+        config.height = 7;
+
+        assert!(matches!(
+            VirtualLcd::new(config),
+            Err(LcdError::InvalidConfig("ssd1306 height must be a multiple of 8"))
         ));
     }
 

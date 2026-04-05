@@ -18,6 +18,13 @@ pub const LCD_HEIGHT: u16 = 240;
 
 pub type Scene = fn(&mut VirtualLcd, u32) -> LcdResult<()>;
 
+fn pixel_format_for_controller(controller: ControllerModel) -> PixelFormat {
+    match controller {
+        ControllerModel::Ssd1306 => PixelFormat::Mono1,
+        ControllerModel::GenericMipiDcs | ControllerModel::Ili9341 => PixelFormat::Rgb565,
+    }
+}
+
 pub fn run_scene(title: &str, scene: Scene) -> Result<(), Box<dyn std::error::Error>> {
     let (frame_path, screen_rect) = frame_asset_for(LCD_WIDTH as usize, LCD_HEIGHT as usize);
     run_scene_with(
@@ -51,7 +58,7 @@ pub fn run_scene_with(
     let config = LcdConfig {
         width: options.width,
         height: options.height,
-        pixel_format: PixelFormat::Rgb565,
+        pixel_format: pixel_format_for_controller(options.controller),
         fps: options.fps,
         interface: InterfaceType::Spi4Wire,
         orientation: 0,
@@ -106,9 +113,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use virtual_lcd_core::{
-        BufferingMode, ControllerModel, InterfaceType, LcdConfig, PixelFormat, VirtualLcd,
-    };
+    use virtual_lcd_core::{BufferingMode, ControllerModel, InterfaceType, LcdConfig, VirtualLcd};
     use virtual_lcd_renderer::ScreenRect;
     use virtual_lcd_sdk::{Color, Lcd};
 
@@ -118,7 +123,7 @@ mod tests {
         LcdConfig {
             width,
             height,
-            pixel_format: PixelFormat::Rgb565,
+            pixel_format: super::pixel_format_for_controller(ControllerModel::Ili9341),
             fps: 1_000,
             interface: InterfaceType::Spi4Wire,
             orientation: 0,
@@ -208,6 +213,16 @@ text 1 1 1 200 210 220 HI
             script::ScriptProgram::parse("controller hx8357"),
             Err(script::ScriptError::InvalidController(value)) if value == "hx8357"
         ));
+    }
+
+    #[test]
+    fn script_program_accepts_ssd1306_controller() {
+        let program = script::ScriptProgram::parse("controller ssd1306\ncanvas 128 64")
+            .expect("script should parse");
+
+        assert_eq!(program.controller, ControllerModel::Ssd1306);
+        assert_eq!(program.width, 128);
+        assert_eq!(program.height, 64);
     }
 
     #[test]

@@ -89,6 +89,7 @@ impl ScriptProgram {
                     {
                         "generic" | "generic-mipi-dcs" => ControllerModel::GenericMipiDcs,
                         "ili9341" => ControllerModel::Ili9341,
+                        "ssd1306" => ControllerModel::Ssd1306,
                         other => return Err(ScriptError::InvalidController(other.to_string())),
                     };
                 }

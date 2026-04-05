@@ -1,0 +1,11 @@
+controller ssd1306
+canvas 128 64
+frame auto
+clear 0 0 0
+gradient 0 0 128 64 0 0 0 255 255 255
+rect 0 0 128 64 255 255 255
+fill_rect 6 6 116 14 255 255 255
+line 0 63 127 0 255 255 255
+circle 96 38 16 255 255 255
+text 12 10 1 0 0 0 SSD1306 FULL
+text 8 48 1 255 255 255 RECT LINE CIRCLE
