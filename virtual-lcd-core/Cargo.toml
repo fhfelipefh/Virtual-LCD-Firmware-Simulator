@@ -1,6 +1,6 @@
 [package]
 name = "virtual-lcd-core"
-version = "0.1.0"
+version = "0.1.1"
 
 edition = "2024"
 rust-version = "1.85"
@@ -13,4 +13,4 @@ readme = "README.md"
 keywords = ["lcd", "embedded", "display", "framebuffer", "simulator"]
 
 [dependencies]
-virtual-lcd-sdk = { version = "0.1.0", path = "../virtual-lcd-sdk" }
+virtual-lcd-sdk = { version = "0.1.1", path = "../virtual-lcd-sdk" }
