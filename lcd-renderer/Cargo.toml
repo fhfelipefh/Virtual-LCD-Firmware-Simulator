@@ -2,8 +2,16 @@
 name = "lcd-renderer"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Window renderer for Virtual LCD framebuffers with SVG bezels."
+license = "MIT"
+repository = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
+homepage = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
+documentation = "https://docs.rs/lcd-renderer"
+readme = "README.md"
+keywords = ["lcd", "renderer", "display", "simulator", "framebuffer"]
 
 [dependencies]
-lcd-core = { path = "../lcd-core" }
+lcd-core = { version = "0.1.0", path = "../lcd-core" }
 minifb = "0.27"
 resvg = { version = "0.43", default-features = true }

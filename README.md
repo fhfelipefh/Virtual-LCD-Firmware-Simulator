@@ -2,6 +2,14 @@
 
 SDK para simular display LCD em Rust.
 
+## Publicação no crates.io
+
+Os módulos de biblioteca do projeto já estão publicados no `crates.io`:
+
+- `lcd-sdk`: <https://crates.io/crates/lcd-sdk> | docs: <https://docs.rs/lcd-sdk>
+- `lcd-core`: <https://crates.io/crates/lcd-core> | docs: <https://docs.rs/lcd-core>
+- `lcd-renderer`: <https://crates.io/crates/lcd-renderer> | docs: <https://docs.rs/lcd-renderer>
+
 ## Arquitetura:
 
 - `lcd-core`: estado do display, framebuffer, timing e comandos.
