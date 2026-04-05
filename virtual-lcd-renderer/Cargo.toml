@@ -1,6 +1,6 @@
 [package]
 name = "virtual-lcd-renderer"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.85"
 description = "Window renderer for Virtual LCD framebuffers with SVG bezels."
@@ -12,6 +12,6 @@ readme = "README.md"
 keywords = ["lcd", "renderer", "display", "simulator", "framebuffer"]
 
 [dependencies]
-virtual-lcd-core = { version = "0.1.2", path = "../virtual-lcd-core" }
+virtual-lcd-core = { version = "0.1.3", path = "../virtual-lcd-core" }
 minifb = "0.27"
 resvg = { version = "0.43", default-features = true }
