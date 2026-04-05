@@ -1,0 +1,15 @@
+[package]
+name = "lcd-sdk"
+version = "0.1.0"
+
+edition = "2024"
+rust-version = "1.85"
+description = "Shared LCD traits and color types for the Virtual LCD Firmware Simulator crates."
+license = "MIT"
+repository = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
+homepage = "https://github.com/fhfelipefh/Virtual-LCD-Firmware-Simulator"
+documentation = "https://docs.rs/lcd-sdk"
+readme = "README.md"
+keywords = ["lcd", "embedded", "display", "driver", "simulator"]
+
+[dependencies]

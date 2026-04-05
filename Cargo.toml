@@ -1,0 +1,3 @@
+[workspace]
+members = ["lcd-core", "lcd-sdk", "lcd-renderer", "lcd-examples"]
+resolver = "2"

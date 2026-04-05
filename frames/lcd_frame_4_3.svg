@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1120" height="820" viewBox="40 40 1120 820" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Outer frame -->
+  <rect x="40" y="40" width="1120" height="820" rx="60" fill="#242a31"/>
+
+  <!-- Inner bezel -->
+  <rect x="100" y="100" width="1000" height="700" rx="30" fill="#0a0d11"/>
+
+  <!-- Screen area -->
+  <rect x="120" y="120" width="960" height="660" rx="20" fill="#05070a"/>
+
+  <!-- Reflection -->
+  <rect x="120" y="120" width="960" height="660" rx="20"
+        fill="white" opacity="0.05"/>
+</svg>

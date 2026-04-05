@@ -1,0 +1,10 @@
+[package]
+name = "lcd-examples"
+version = "0.1.0"
+edition = "2024"
+default-run = "dashboard"
+
+[dependencies]
+lcd-core = { path = "../lcd-core" }
+lcd-renderer = { path = "../lcd-renderer" }
+lcd-sdk = { path = "../lcd-sdk" }
