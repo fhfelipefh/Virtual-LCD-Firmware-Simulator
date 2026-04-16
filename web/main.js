@@ -19,6 +19,17 @@ let pointerDown = false;
 let lastFpsTick = performance.now();
 let framesSinceFps = 0;
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function reportInitProgress(percent, message) {
+  setStatus(`Inicializando ${percent}% - ${message}`);
+  await wait(20);
+}
+
 function setStatus(message, isError = false) {
   statusLine.textContent = message;
   statusLine.dataset.error = isError ? "true" : "false";
@@ -199,16 +210,23 @@ function startLoop() {
 }
 
 try {
+  await reportInitProgress(10, "preparando runtime");
   const wasmUrl = new URL("./pkg/virtual_lcd_web_bg.wasm", import.meta.url);
+  await reportInitProgress(35, "carregando módulo wasm");
   await init(wasmUrl);
+  await reportInitProgress(62, "criando simulador");
   simulator = new WebSimulator();
+  await reportInitProgress(74, "carregando script padrão");
   scriptEditor.value = simulator.default_script();
+  await reportInitProgress(82, "configurando canvas");
   syncCanvasSize();
+  await reportInitProgress(89, "registrando interações");
   bindPointer();
   bindKeyboard();
   bindControls();
+  await reportInitProgress(96, "sincronizando metadados");
   updateMeta();
-  setStatus("Runtime wasm carregado. Viewer pronto.");
+  setStatus("Inicializando 100% - Runtime wasm carregado. Viewer pronto.");
   startLoop();
 } catch (error) {
   const details = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
