@@ -80,6 +80,7 @@ pub struct WebSimulator {
 impl WebSimulator {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WebSimulator, JsValue> {
+        console_error_panic_hook::set_once();
         let mode = Mode::Scene(SceneKind::Dashboard);
         let lcd = Self::build_lcd_for_mode(&mode)?;
         Ok(Self {

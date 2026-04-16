@@ -14,3 +14,4 @@ keywords = ["lcd", "embedded", "display", "framebuffer", "simulator"]
 
 [dependencies]
 virtual-lcd-sdk = { version = "0.1.5", path = "../virtual-lcd-sdk" }
+instant = "0.1"

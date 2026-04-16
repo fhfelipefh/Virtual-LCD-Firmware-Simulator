@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-virtual-lcd-core = { version = "0.1.2", path = "../virtual-lcd-core" }
-virtual-lcd-sdk = { version = "0.1.2", path = "../virtual-lcd-sdk" }
-virtual-lcd-examples = { version = "0.1.2", path = "../virtual-lcd-examples" }
+console_error_panic_hook = "0.1"
+virtual-lcd-core = { version = "0.1.5", path = "../virtual-lcd-core" }
+virtual-lcd-sdk = { version = "0.1.5", path = "../virtual-lcd-sdk" }
+virtual-lcd-examples = { version = "0.1.5", path = "../virtual-lcd-examples" }

@@ -21,7 +21,7 @@ let framesSinceFps = 0;
 
 function setStatus(message, isError = false) {
   statusLine.textContent = message;
-  statusLine.style.color = isError ? "#ff9a9a" : "#b6dce0";
+  statusLine.dataset.error = isError ? "true" : "false";
 }
 
 function syncCanvasSize() {
@@ -199,7 +199,8 @@ function startLoop() {
 }
 
 try {
-  await init();
+  const wasmUrl = new URL("./pkg/virtual_lcd_web_bg.wasm", import.meta.url);
+  await init(wasmUrl);
   simulator = new WebSimulator();
   scriptEditor.value = simulator.default_script();
   syncCanvasSize();
@@ -210,5 +211,7 @@ try {
   setStatus("Runtime wasm carregado. Viewer pronto.");
   startLoop();
 } catch (error) {
-  setStatus(`Falha ao inicializar wasm: ${String(error)}`, true);
+  const details = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
+  console.error("Falha ao inicializar wasm", error);
+  setStatus(`Falha ao inicializar wasm: ${details}`, true);
 }

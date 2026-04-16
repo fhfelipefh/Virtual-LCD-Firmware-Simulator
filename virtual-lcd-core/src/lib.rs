@@ -2,8 +2,9 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::collections::BTreeMap;
+use instant::Instant;
 
 pub use virtual_lcd_sdk::{Color, Lcd, LcdBus, PinId};
 
