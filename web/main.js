@@ -1,5 +1,3 @@
-import init, { WebSimulator } from "./pkg/virtual_lcd_web.js";
-
 const canvas = document.getElementById("lcdCanvas");
 const ctx = canvas.getContext("2d");
 const sceneSelect = document.getElementById("sceneSelect");
@@ -14,6 +12,8 @@ const metaLine = document.getElementById("metaLine");
 const fpsPill = document.getElementById("fpsPill");
 
 let simulator;
+let wasmInit;
+let WebSimulatorCtor;
 let running = true;
 let pointerDown = false;
 let lastFpsTick = performance.now();
@@ -211,11 +211,16 @@ function startLoop() {
 
 try {
   await reportInitProgress(10, "preparando runtime");
-  const wasmUrl = new URL("./pkg/virtual_lcd_web_bg.wasm", import.meta.url);
+  const cacheBust = `${Date.now()}`;
+  const wasmModule = await import(`./pkg/virtual_lcd_web.js?v=${cacheBust}`);
+  wasmInit = wasmModule.default;
+  WebSimulatorCtor = wasmModule.WebSimulator;
+
+  const wasmUrl = new URL(`./pkg/virtual_lcd_web_bg.wasm?v=${cacheBust}`, import.meta.url);
   await reportInitProgress(35, "carregando módulo wasm");
-  await init(wasmUrl);
+  await wasmInit(wasmUrl);
   await reportInitProgress(62, "criando simulador");
-  simulator = new WebSimulator();
+  simulator = new WebSimulatorCtor();
   await reportInitProgress(74, "carregando script padrão");
   scriptEditor.value = simulator.default_script();
   await reportInitProgress(82, "configurando canvas");
