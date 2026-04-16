@@ -185,6 +185,14 @@ textarea {
   margin-top: 0.45rem;
 }
 
+.inline-row-wrap {
+  flex-wrap: wrap;
+}
+
+.inline-row-wrap .btn {
+  flex: 1 1 130px;
+}
+
 .btn {
   padding: 0.46rem 0.72rem;
   cursor: pointer;

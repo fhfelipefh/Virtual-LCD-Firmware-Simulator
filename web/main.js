@@ -3,6 +3,12 @@ const ctx = canvas.getContext("2d");
 const sceneSelect = document.getElementById("sceneSelect");
 const applySceneBtn = document.getElementById("applySceneBtn");
 const scriptEditor = document.getElementById("scriptEditor");
+const saveScriptBtn = document.getElementById("saveScriptBtn");
+const loadScriptBtn = document.getElementById("loadScriptBtn");
+const exportScriptBtn = document.getElementById("exportScriptBtn");
+const importScriptBtn = document.getElementById("importScriptBtn");
+const copyScriptBtn = document.getElementById("copyScriptBtn");
+const scriptFileInput = document.getElementById("scriptFileInput");
 const targetFpsInput = document.getElementById("targetFpsInput");
 const applyFpsBtn = document.getElementById("applyFpsBtn");
 const runScriptBtn = document.getElementById("runScriptBtn");
@@ -22,6 +28,8 @@ let lastFpsTick = performance.now();
 let framesSinceFps = 0;
 let stepIntervalMs = 1000 / 60;
 let lastStepTick = performance.now();
+
+const SCRIPT_STORAGE_KEY = "virtual-lcd-script-v1";
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -44,6 +52,59 @@ function clearStatus() {
   statusLine.textContent = "";
   statusLine.dataset.error = "false";
   statusLine.classList.add("is-hidden");
+}
+
+function saveScriptToLocalStorage(showStatus = true) {
+  localStorage.setItem(SCRIPT_STORAGE_KEY, scriptEditor.value);
+  if (showStatus) {
+    setStatus("Script salvo no navegador.");
+  }
+}
+
+function loadScriptFromLocalStorage(showStatus = true) {
+  const saved = localStorage.getItem(SCRIPT_STORAGE_KEY);
+  if (!saved) {
+    if (showStatus) {
+      setStatus("Nenhum script salvo no navegador.", true);
+    }
+    return false;
+  }
+
+  scriptEditor.value = saved;
+  if (showStatus) {
+    setStatus("Script carregado do navegador.");
+  }
+  return true;
+}
+
+function exportScriptToFile() {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+  const fileName = `virtual-lcd-script-${stamp}.lcd`;
+
+  const blob = new Blob([scriptEditor.value], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+
+  setStatus(`Script exportado: ${fileName}`);
+}
+
+async function copyScriptToClipboard() {
+  const text = scriptEditor.value;
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    setStatus("Script copiado para a área de transferência.");
+    return;
+  }
+
+  scriptEditor.focus();
+  scriptEditor.select();
+  setStatus("Clipboard API indisponível. Use Ctrl+C para copiar o script selecionado.", true);
 }
 
 function syncCanvasSize() {
@@ -162,6 +223,60 @@ function bindKeyboard() {
 }
 
 function bindControls() {
+  saveScriptBtn.addEventListener("click", () => {
+    try {
+      saveScriptToLocalStorage();
+    } catch (error) {
+      setStatus(String(error), true);
+    }
+  });
+
+  loadScriptBtn.addEventListener("click", () => {
+    try {
+      loadScriptFromLocalStorage();
+    } catch (error) {
+      setStatus(String(error), true);
+    }
+  });
+
+  exportScriptBtn.addEventListener("click", () => {
+    try {
+      exportScriptToFile();
+    } catch (error) {
+      setStatus(String(error), true);
+    }
+  });
+
+  importScriptBtn.addEventListener("click", () => {
+    scriptFileInput.click();
+  });
+
+  scriptFileInput.addEventListener("change", async () => {
+    try {
+      const file = scriptFileInput.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      const content = await file.text();
+      scriptEditor.value = content;
+      saveScriptToLocalStorage(false);
+      setStatus(`Script importado: ${file.name}`);
+    } catch (error) {
+      setStatus(String(error), true);
+    } finally {
+      scriptFileInput.value = "";
+    }
+  });
+
+  copyScriptBtn.addEventListener("click", async () => {
+    try {
+      await copyScriptToClipboard();
+    } catch (error) {
+      setStatus(String(error), true);
+    }
+  });
+
   applyFpsBtn.addEventListener("click", () => {
     try {
       const nextFps = Number.parseInt(targetFpsInput.value, 10);
@@ -198,6 +313,7 @@ function bindControls() {
   runScriptBtn.addEventListener("click", () => {
     try {
       simulator.load_script(scriptEditor.value);
+      saveScriptToLocalStorage(false);
       syncCanvasSize();
       targetFpsInput.value = String(simulator.fps());
       stepIntervalMs = 1000 / simulator.fps();
@@ -287,6 +403,7 @@ try {
   targetFpsInput.value = String(simulator.fps());
   await reportInitProgress(74, "carregando script padrão");
   scriptEditor.value = simulator.default_script();
+  loadScriptFromLocalStorage(false);
   await reportInitProgress(82, "configurando canvas");
   syncCanvasSize();
   await reportInitProgress(89, "registrando interações");

@@ -180,6 +180,20 @@ Recursos principais:
 - execução de script LCD direto no navegador
 - input por mouse e teclado
 
+### Roadmap sugerido
+
+- Novas controladoras
+  Valor: médio-alto
+  Esforço: médio-alto
+  Ideias: `ST7789`, `ST7735`, `GC9A01`.
+  Por que é legal: amplia adoção do projeto em exemplos reais de mercado.
+
+- Efeitos de fidelidade de hardware
+  Valor: médio
+  Esforço: médio
+  Ideias: ghosting, gamma, PWM de backlight, ruído, tearing opcional.
+  Por que é legal: aproxima do comportamento real para validação mais fiel.
+
 ### Rodar localmente
 
 1. gerar o pacote wasm:
