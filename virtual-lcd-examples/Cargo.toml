@@ -1,12 +1,12 @@
 [package]
 name = "virtual-lcd-examples"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 default-run = "dashboard"
 
 [dependencies]
-virtual-lcd-core = { version = "0.1.4", path = "../virtual-lcd-core" }
-virtual-lcd-sdk = { version = "0.1.4", path = "../virtual-lcd-sdk" }
+virtual-lcd-core = { version = "0.1.5", path = "../virtual-lcd-core" }
+virtual-lcd-sdk = { version = "0.1.5", path = "../virtual-lcd-sdk" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-virtual-lcd-renderer = { version = "0.1.4", path = "../virtual-lcd-renderer" }
+virtual-lcd-renderer = { version = "0.1.5", path = "../virtual-lcd-renderer" }
