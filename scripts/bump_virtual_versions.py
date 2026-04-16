@@ -1,31 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
 
-MANIFESTS = [
-    ROOT / "virtual-lcd-sdk" / "Cargo.toml",
-    ROOT / "virtual-lcd-core" / "Cargo.toml",
-    ROOT / "virtual-lcd-renderer" / "Cargo.toml",
-    ROOT / "virtual-lcd-examples" / "Cargo.toml",
-]
-
-DEPENDENCY_PATTERNS = {
-    ROOT / "virtual-lcd-core" / "Cargo.toml": [
-        r'(virtual-lcd-sdk = \{ version = ")(\d+\.\d+\.\d+)(".*\})',
-    ],
-    ROOT / "virtual-lcd-renderer" / "Cargo.toml": [
-        r'(virtual-lcd-core = \{ version = ")(\d+\.\d+\.\d+)(".*\})',
-    ],
-    ROOT / "virtual-lcd-examples" / "Cargo.toml": [
-        r'(virtual-lcd-core = \{ version = ")(\d+\.\d+\.\d+)(".*\})',
-        r'(virtual-lcd-renderer = \{ version = ")(\d+\.\d+\.\d+)(".*\})',
-        r'(virtual-lcd-sdk = \{ version = ")(\d+\.\d+\.\d+)(".*\})',
-    ],
+MANIFESTS = {
+    "virtual-lcd-sdk": ROOT / "virtual-lcd-sdk" / "Cargo.toml",
+    "virtual-lcd-core": ROOT / "virtual-lcd-core" / "Cargo.toml",
+    "virtual-lcd-renderer": ROOT / "virtual-lcd-renderer" / "Cargo.toml",
+    "virtual-lcd-examples": ROOT / "virtual-lcd-examples" / "Cargo.toml",
 }
 
 VERSION_RE = re.compile(r'(?m)^version = "(\d+)\.(\d+)\.(\d+)"$')
@@ -51,30 +38,37 @@ def replace_first_package_version(manifest_path: Path, new_version: str) -> None
     manifest_path.write_text(updated)
 
 
-def update_dependency_versions(manifest_path: Path, new_version: str) -> None:
-    text = manifest_path.read_text()
-    for pattern in DEPENDENCY_PATTERNS.get(manifest_path, []):
-        text, count = re.subn(pattern, rf"\g<1>{new_version}\g<3>", text)
-        if count != 1:
-            raise SystemExit(f"Could not update dependency version in {manifest_path}: {pattern}")
-    manifest_path.write_text(text)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Bump patch version only for selected virtual-lcd crates"
+    )
+    parser.add_argument(
+        "crates",
+        nargs="+",
+        help="Crate names to bump (e.g. virtual-lcd-renderer virtual-lcd-core)",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
-    versions = {read_version(path) for path in MANIFESTS}
-    if len(versions) != 1:
-        raise SystemExit(f"Expected a single shared version across manifests, got: {sorted(versions)}")
+    args = parse_args()
+    selected = []
 
-    current_version = versions.pop()
-    new_version = bump_patch(current_version)
+    for crate in args.crates:
+        if crate not in MANIFESTS:
+            valid = ", ".join(sorted(MANIFESTS.keys()))
+            raise SystemExit(f"Unknown crate '{crate}'. Valid options: {valid}")
+        selected.append(crate)
 
-    for manifest_path in MANIFESTS:
+    bumped = []
+    for crate in selected:
+        manifest_path = MANIFESTS[crate]
+        current_version = read_version(manifest_path)
+        new_version = bump_patch(current_version)
         replace_first_package_version(manifest_path, new_version)
+        bumped.append(f"{crate}:{new_version}")
 
-    for manifest_path in MANIFESTS:
-        update_dependency_versions(manifest_path, new_version)
-
-    print(new_version)
+    print(" ".join(bumped))
 
 
 if __name__ == "__main__":

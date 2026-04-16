@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "virtual-lcd-sdk/**"
+      - "virtual-lcd-core/**"
+      - "virtual-lcd-renderer/**"
+      - "scripts/bump_virtual_versions.py"
+      - ".github/workflows/publish-crates.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -27,48 +35,112 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect changed crates
+        id: detect
+        run: |
+          base="${{ github.event.before }}"
+          head="${{ github.sha }}"
+
+          if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
+          changed_files="$(git diff --name-only "$base" "$head")"
+
+          sdk_changed=false
+          core_changed=false
+          renderer_changed=false
+
+          if echo "$changed_files" | grep -q '^virtual-lcd-sdk/'; then
+            sdk_changed=true
+          fi
+          if echo "$changed_files" | grep -q '^virtual-lcd-core/'; then
+            core_changed=true
+          fi
+          if echo "$changed_files" | grep -q '^virtual-lcd-renderer/'; then
+            renderer_changed=true
+          fi
+
+          changed_crates=""
+          if [ "$sdk_changed" = true ]; then
+            changed_crates="$changed_crates virtual-lcd-sdk"
+          fi
+          if [ "$core_changed" = true ]; then
+            changed_crates="$changed_crates virtual-lcd-core"
+          fi
+          if [ "$renderer_changed" = true ]; then
+            changed_crates="$changed_crates virtual-lcd-renderer"
+          fi
+
+          changed_crates="$(echo "$changed_crates" | xargs)"
+
+          if [ -n "$changed_crates" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "sdk_changed=$sdk_changed" >> "$GITHUB_OUTPUT"
+          echo "core_changed=$core_changed" >> "$GITHUB_OUTPUT"
+          echo "renderer_changed=$renderer_changed" >> "$GITHUB_OUTPUT"
+          echo "changed_crates=$changed_crates" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
+        if: steps.detect.outputs.has_changes == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Configure git author
+        if: steps.detect.outputs.has_changes == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Bump virtual crate versions
         id: bump
+        if: steps.detect.outputs.has_changes == 'true'
         run: |
-          new_version="$(python3 scripts/bump_virtual_versions.py)"
-          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+          changed_crates="${{ steps.detect.outputs.changed_crates }}"
+          bump_result="$(python3 scripts/bump_virtual_versions.py $changed_crates)"
+          echo "bump_result=$bump_result" >> "$GITHUB_OUTPUT"
 
       - name: Run test suite
+        if: steps.detect.outputs.has_changes == 'true'
         run: cargo test
 
       - name: Authenticate with crates.io Trusted Publishing
         id: auth
+        if: steps.detect.outputs.has_changes == 'true'
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Commit version bump
+        if: steps.detect.outputs.has_changes == 'true'
         run: |
           git add Cargo.toml Cargo.lock \
             virtual-lcd-sdk/Cargo.toml \
             virtual-lcd-core/Cargo.toml \
             virtual-lcd-renderer/Cargo.toml \
             virtual-lcd-examples/Cargo.toml
-          git commit -m "chore: release virtual crates v${{ steps.bump.outputs.version }} [skip release]"
+          if git diff --cached --quiet; then
+            echo "No version changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: release updated virtual crates (${{ steps.bump.outputs.bump_result }}) [skip release]"
           git push
 
       - name: Publish virtual-lcd-sdk
+        if: steps.detect.outputs.sdk_changed == 'true'
         run: cargo publish -p virtual-lcd-sdk --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Publish virtual-lcd-core
+        if: steps.detect.outputs.core_changed == 'true'
         run: cargo publish -p virtual-lcd-core --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Publish virtual-lcd-renderer
+        if: steps.detect.outputs.renderer_changed == 'true'
         run: cargo publish -p virtual-lcd-renderer --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
