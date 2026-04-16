@@ -69,6 +69,7 @@ enum Mode {
 pub struct WebSimulator {
     lcd: VirtualLcd,
     mode: Mode,
+    fps: u16,
     tick: u32,
     pointer_x: u16,
     pointer_y: u16,
@@ -82,10 +83,11 @@ impl WebSimulator {
     pub fn new() -> Result<WebSimulator, JsValue> {
         console_error_panic_hook::set_once();
         let mode = Mode::Scene(SceneKind::Dashboard);
-        let lcd = Self::build_lcd_for_mode(&mode)?;
+        let lcd = Self::build_lcd_for_mode(&mode, DEFAULT_FPS)?;
         Ok(Self {
             lcd,
             mode,
+            fps: DEFAULT_FPS,
             tick: 0,
             pointer_x: 0,
             pointer_y: 0,
@@ -95,9 +97,22 @@ impl WebSimulator {
     }
 
     pub fn reset(&mut self) -> Result<(), JsValue> {
-        self.lcd = Self::build_lcd_for_mode(&self.mode)?;
+        self.lcd = Self::build_lcd_for_mode(&self.mode, self.fps)?;
         self.tick = 0;
         Ok(())
+    }
+
+    pub fn fps(&self) -> u16 {
+        self.fps
+    }
+
+    pub fn set_fps(&mut self, fps: u16) -> Result<(), JsValue> {
+        if !(1..=240).contains(&fps) {
+            return Err(JsValue::from_str("FPS deve estar entre 1 e 240"));
+        }
+
+        self.fps = fps;
+        self.reset()
     }
 
     pub fn set_scene(&mut self, name: &str) -> Result<(), JsValue> {
@@ -198,7 +213,7 @@ impl WebSimulator {
         include_str!("../../virtual-lcd-examples/scripts/panel.lcd").to_string()
     }
 
-    fn build_lcd_for_mode(mode: &Mode) -> Result<VirtualLcd, JsValue> {
+    fn build_lcd_for_mode(mode: &Mode, fps: u16) -> Result<VirtualLcd, JsValue> {
         let (width, height, controller) = match mode {
             Mode::Scene(scene) => scene.config(),
             Mode::Script(program) => (program.width, program.height, program.controller),
@@ -213,7 +228,7 @@ impl WebSimulator {
             width,
             height,
             pixel_format,
-            fps: DEFAULT_FPS,
+            fps,
             interface: InterfaceType::Spi4Wire,
             orientation: 0,
             vsync: false,

@@ -16,14 +16,6 @@
   <body>
     <div class="crt"></div>
     <main class="shell">
-      <header class="top">
-        <h1>WEB VIEWER</h1>
-      </header>
-
-      <section class="intro">
-        Visualize, interaja e teste suas cenas LCD direto no navegador.
-      </section>
-
       <section class="grid">
         <article class="panel box">
           <div class="box-head">
@@ -44,6 +36,14 @@
 
         <aside class="controls box">
           <h2>Controles</h2>
+
+          <div class="field-group">
+            <label for="targetFpsInput">FPS do LCD</label>
+            <div class="inline-row">
+              <input id="targetFpsInput" type="number" min="1" max="240" step="1" value="60" />
+              <button id="applyFpsBtn" class="btn">Aplicar FPS</button>
+            </div>
+          </div>
 
           <div class="field-group">
             <label for="sceneSelect">Cena</label>

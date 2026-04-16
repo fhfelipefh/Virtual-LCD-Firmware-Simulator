@@ -3,6 +3,8 @@ const ctx = canvas.getContext("2d");
 const sceneSelect = document.getElementById("sceneSelect");
 const applySceneBtn = document.getElementById("applySceneBtn");
 const scriptEditor = document.getElementById("scriptEditor");
+const targetFpsInput = document.getElementById("targetFpsInput");
+const applyFpsBtn = document.getElementById("applyFpsBtn");
 const runScriptBtn = document.getElementById("runScriptBtn");
 const resetBtn = document.getElementById("resetBtn");
 const toggleRunBtn = document.getElementById("toggleRunBtn");
@@ -18,6 +20,8 @@ let running = true;
 let pointerDown = false;
 let lastFpsTick = performance.now();
 let framesSinceFps = 0;
+let stepIntervalMs = 1000 / 60;
+let lastStepTick = performance.now();
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -31,8 +35,15 @@ async function reportInitProgress(percent, message) {
 }
 
 function setStatus(message, isError = false) {
+  statusLine.classList.remove("is-hidden");
   statusLine.textContent = message;
   statusLine.dataset.error = isError ? "true" : "false";
+}
+
+function clearStatus() {
+  statusLine.textContent = "";
+  statusLine.dataset.error = "false";
+  statusLine.classList.add("is-hidden");
 }
 
 function syncCanvasSize() {
@@ -45,7 +56,7 @@ function syncCanvasSize() {
 function updateMeta() {
   const mode = simulator.mode_name();
   const controller = simulator.controller_name();
-  metaLine.textContent = `Modo: ${mode} | ${simulator.width()}x${simulator.height()} | ${controller}`;
+  metaLine.textContent = `Modo: ${mode} | ${simulator.width()}x${simulator.height()} | ${controller} | ${simulator.fps()}Hz`;
 }
 
 function renderFrame() {
@@ -108,7 +119,26 @@ function mapKeyToButton(key) {
 }
 
 function bindKeyboard() {
+  const shouldIgnoreLcdInput = () => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) {
+      return false;
+    }
+
+    const tag = active.tagName;
+    return (
+      tag === "TEXTAREA" ||
+      tag === "INPUT" ||
+      tag === "SELECT" ||
+      active.isContentEditable
+    );
+  };
+
   globalThis.addEventListener("keydown", (event) => {
+    if (shouldIgnoreLcdInput()) {
+      return;
+    }
+
     const button = mapKeyToButton(event.key);
     if (!button) {
       return;
@@ -118,6 +148,10 @@ function bindKeyboard() {
   });
 
   globalThis.addEventListener("keyup", (event) => {
+    if (shouldIgnoreLcdInput()) {
+      return;
+    }
+
     const button = mapKeyToButton(event.key);
     if (!button) {
       return;
@@ -128,10 +162,31 @@ function bindKeyboard() {
 }
 
 function bindControls() {
+  applyFpsBtn.addEventListener("click", () => {
+    try {
+      const nextFps = Number.parseInt(targetFpsInput.value, 10);
+      if (!Number.isFinite(nextFps)) {
+        throw new TypeError("FPS inválido");
+      }
+
+      simulator.set_fps(nextFps);
+      const appliedFps = simulator.fps();
+      targetFpsInput.value = String(appliedFps);
+      stepIntervalMs = 1000 / appliedFps;
+      lastStepTick = performance.now();
+      updateMeta();
+      setStatus(`FPS aplicado: ${appliedFps} Hz`);
+    } catch (error) {
+      setStatus(String(error), true);
+    }
+  });
+
   applySceneBtn.addEventListener("click", () => {
     try {
       simulator.set_scene(sceneSelect.value);
       syncCanvasSize();
+      targetFpsInput.value = String(simulator.fps());
+      stepIntervalMs = 1000 / simulator.fps();
       updateMeta();
       renderFrame();
       setStatus(`Cena '${sceneSelect.value}' aplicada.`);
@@ -144,6 +199,8 @@ function bindControls() {
     try {
       simulator.load_script(scriptEditor.value);
       syncCanvasSize();
+      targetFpsInput.value = String(simulator.fps());
+      stepIntervalMs = 1000 / simulator.fps();
       updateMeta();
       renderFrame();
       setStatus("Script executado com sucesso.");
@@ -156,6 +213,8 @@ function bindControls() {
     try {
       simulator.reset();
       syncCanvasSize();
+      targetFpsInput.value = String(simulator.fps());
+      stepIntervalMs = 1000 / simulator.fps();
       updateMeta();
       renderFrame();
       setStatus("Simulador resetado.");
@@ -194,7 +253,10 @@ function startLoop() {
   const loop = (now) => {
     try {
       if (running) {
-        simulator.step();
+        if (now - lastStepTick >= stepIntervalMs) {
+          simulator.step();
+          lastStepTick = now;
+        }
       }
       renderFrame();
       tickFps(now);
@@ -221,6 +283,8 @@ try {
   await wasmInit(wasmUrl);
   await reportInitProgress(62, "criando simulador");
   simulator = new WebSimulatorCtor();
+  stepIntervalMs = 1000 / simulator.fps();
+  targetFpsInput.value = String(simulator.fps());
   await reportInitProgress(74, "carregando script padrão");
   scriptEditor.value = simulator.default_script();
   await reportInitProgress(82, "configurando canvas");
@@ -232,6 +296,9 @@ try {
   await reportInitProgress(96, "sincronizando metadados");
   updateMeta();
   setStatus("Inicializando 100% - Runtime wasm carregado. Viewer pronto.");
+  setTimeout(() => {
+    clearStatus();
+  }, 1200);
   startLoop();
 } catch (error) {
   const details = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
