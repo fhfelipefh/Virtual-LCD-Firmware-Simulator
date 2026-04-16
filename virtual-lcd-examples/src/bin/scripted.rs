@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut lcd = VirtualLcd::new(config)?;
     lcd.init()?;
 
-    let frame = SvgFrame::load(frame_path, screen_rect)?;
+    let frame = SvgFrame::load(frame_path, screen_rect.into())?;
     let mut renderer = WindowRenderer::new("LCD Script Runner", frame)?;
 
     while renderer.is_open() {

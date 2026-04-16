@@ -4,5 +4,6 @@ members = [
     "virtual-lcd-sdk",
     "virtual-lcd-renderer",
     "virtual-lcd-examples",
+    "virtual-lcd-web",
 ]
 resolver = "2"

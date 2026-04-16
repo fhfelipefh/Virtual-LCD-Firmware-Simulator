@@ -10,7 +10,7 @@ Os módulos de biblioteca do projeto já estão publicados no `crates.io`:
 - `virtual-lcd-core`: <https://crates.io/crates/virtual-lcd-core> | docs: <https://docs.rs/virtual-lcd-core>
 - `virtual-lcd-renderer`: <https://crates.io/crates/virtual-lcd-renderer> | docs: <https://docs.rs/virtual-lcd-renderer>
 
-## Arquitetura:
+## Arquitetura
 
 - `virtual-lcd-core`: estado do display, framebuffer, timing e comandos.
 - `virtual-lcd-sdk`: API usada pelos exemplos como se fosse o driver do hardware.
@@ -19,7 +19,7 @@ Os módulos de biblioteca do projeto já estão publicados no `crates.io`:
 
 ## Extensões de hardware
 
-O simulador suporta o conceito de extensões de hardware. 
+O simulador suporta o conceito de extensões de hardware.
 Cada extensão muda o comportamento do firmware virtual para representar um controlador LCD real, com registradores, comandos e leitura de estado próprios.
 
 Extensões atualmente implementadas:
@@ -127,7 +127,7 @@ text 12 10 1 0 0 0 SSD1306 FULL
 text 8 48 1 255 255 255 RECT LINE CIRCLE
 ```
 
-### `scripted` com `ili9341`:
+### `scripted` com `ili9341`
 
 Exemplo colorido para `320x240`, também usando a resolução máxima da controladora e cobrindo todas as instruções suportadas:
 
@@ -168,6 +168,38 @@ As molduras ficam em `frames/` e são usadas só como entrada visual do renderer
 - `9:16`
 
 O renderer escolhe a moldura pelo aspect ratio do LCD e desenha a imagem útil dentro da área interna do SVG.
+
+## Visualizador Web (WASM)
+
+O projeto inclui um visualizador web em `web/` com runtime WebAssembly em `virtual-lcd-web/`.
+
+Recursos principais:
+
+- renderização do framebuffer em `canvas`
+- cenas interativas (`dashboard`, `oscilloscope`, `startup`, `gameboy`)
+- execução de script LCD direto no navegador
+- input por mouse e teclado
+
+### Rodar localmente
+
+1. gerar o pacote wasm:
+
+```bash
+wasm-pack build virtual-lcd-web --target web --dev --out-dir ../web/pkg
+```
+
+1. servir os arquivos estáticos da pasta `web/`:
+
+```bash
+cd web
+python3 -m http.server 8080
+```
+
+1. abrir no navegador:
+
+```text
+http://localhost:8080
+```
 
 ## Scripts de LCD
 

@@ -1,12 +1,38 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
-use virtual_lcd_core::{
-    BufferingMode, ControllerModel, InterfaceType, LcdConfig, PixelFormat, Result as LcdResult,
-    VirtualLcd,
-};
-use virtual_lcd_renderer::{ScreenRect, SvgFrame, WindowRenderer};
+use virtual_lcd_core::{ControllerModel, Result as LcdResult, VirtualLcd};
+
+#[cfg(not(target_arch = "wasm32"))]
+use virtual_lcd_core::{BufferingMode, InterfaceType, LcdConfig, PixelFormat};
+#[cfg(not(target_arch = "wasm32"))]
 use virtual_lcd_sdk::Lcd;
+
+#[cfg(not(target_arch = "wasm32"))]
+use virtual_lcd_renderer::{SvgFrame, WindowRenderer};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenRect {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl ScreenRect {
+    pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
+        Self { x, y, width, height }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<ScreenRect> for virtual_lcd_renderer::ScreenRect {
+    fn from(value: ScreenRect) -> Self {
+        Self::new(value.x, value.y, value.width, value.height)
+    }
+}
 
 pub mod draw;
 pub mod font;
@@ -18,6 +44,7 @@ pub const LCD_HEIGHT: u16 = 240;
 
 pub type Scene = fn(&mut VirtualLcd, u32) -> LcdResult<()>;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn pixel_format_for_controller(controller: ControllerModel) -> PixelFormat {
     match controller {
         ControllerModel::Ssd1306 => PixelFormat::Mono1,
@@ -25,6 +52,7 @@ fn pixel_format_for_controller(controller: ControllerModel) -> PixelFormat {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_scene(title: &str, scene: Scene) -> Result<(), Box<dyn std::error::Error>> {
     let (frame_path, screen_rect) = frame_asset_for(LCD_WIDTH as usize, LCD_HEIGHT as usize);
     run_scene_with(
@@ -51,6 +79,7 @@ pub struct RuntimeOptions<'a> {
     pub controller: ControllerModel,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_scene_with(
     options: RuntimeOptions<'_>,
     scene: Scene,
@@ -73,7 +102,7 @@ pub fn run_scene_with(
     let mut lcd = VirtualLcd::new(config)?;
     lcd.init()?;
 
-    let frame = SvgFrame::load(options.frame_path, options.screen_rect)?;
+    let frame = SvgFrame::load(options.frame_path, options.screen_rect.into())?;
     let mut renderer = WindowRenderer::new(options.title, frame)?;
 
     let mut tick = 0u32;
@@ -114,10 +143,9 @@ mod tests {
     use std::time::Duration;
 
     use virtual_lcd_core::{BufferingMode, ControllerModel, InterfaceType, LcdConfig, VirtualLcd};
-    use virtual_lcd_renderer::ScreenRect;
     use virtual_lcd_sdk::{Color, Lcd};
 
-    use super::{frame_asset_for, scenes, script};
+    use super::{frame_asset_for, scenes, script, ScreenRect};
 
     fn fast_config(width: u16, height: u16) -> LcdConfig {
         LcdConfig {

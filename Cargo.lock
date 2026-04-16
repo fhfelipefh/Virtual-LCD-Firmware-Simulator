@@ -1080,6 +1080,16 @@ name = "virtual-lcd-sdk"
 version = "0.1.2"
 
 [[package]]
+name = "virtual-lcd-web"
+version = "0.1.0"
+dependencies = [
+ "virtual-lcd-core",
+ "virtual-lcd-examples",
+ "virtual-lcd-sdk",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "wasip2"
 version = "1.0.2+wasi-0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

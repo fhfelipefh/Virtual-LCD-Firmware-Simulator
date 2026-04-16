@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual LCD Web Viewer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="kicker">Virtual LCD Firmware Simulator</p>
+        <h1>Web Viewer</h1>
+        <p class="lead">
+          Visualize, interaja e teste suas cenas e scripts LCD direto no navegador.
+        </p>
+      </section>
+
+      <section class="content-grid">
+        <article class="viewer-card">
+          <header class="viewer-header">
+            <div>
+              <h2>Painel</h2>
+              <p id="metaLine">Modo: inicializando</p>
+            </div>
+            <span id="fpsPill" class="pill">0 FPS</span>
+          </header>
+
+          <div class="viewer-wrap" id="viewerWrap">
+            <canvas id="lcdCanvas" width="320" height="240"></canvas>
+          </div>
+
+          <div class="hint-row">
+            <span>Interação: clique e arraste no display</span>
+            <span>Teclas: ↑ ↓ ← →, A, B, Enter, Shift</span>
+          </div>
+        </article>
+
+        <aside class="control-card">
+          <h2>Controles</h2>
+
+          <div class="field-group">
+            <label for="sceneSelect">Cena</label>
+            <div class="inline-row">
+              <select id="sceneSelect">
+                <option value="dashboard">Dashboard</option>
+                <option value="oscilloscope">Oscilloscope</option>
+                <option value="startup">Startup</option>
+                <option value="gameboy">Gameboy</option>
+              </select>
+              <button id="applySceneBtn" class="btn">Aplicar</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="scriptEditor">Script LCD</label>
+            <textarea id="scriptEditor" spellcheck="false"></textarea>
+            <div class="inline-row">
+              <button id="runScriptBtn" class="btn btn-accent">Executar Script</button>
+              <button id="resetBtn" class="btn">Reset</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label>Execução</label>
+            <div class="inline-row">
+              <button id="toggleRunBtn" class="btn btn-primary">Pausar</button>
+              <button id="stepBtn" class="btn">Step</button>
+            </div>
+          </div>
+
+          <p id="statusLine" class="status-line">Inicializando runtime wasm...</p>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
