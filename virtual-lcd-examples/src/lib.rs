@@ -23,7 +23,12 @@ pub struct ScreenRect {
 
 impl ScreenRect {
     pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -36,8 +41,8 @@ impl From<ScreenRect> for virtual_lcd_renderer::ScreenRect {
 
 pub mod draw;
 pub mod font;
-pub mod script;
 pub mod scenes;
+pub mod script;
 
 pub const LCD_WIDTH: u16 = 320;
 pub const LCD_HEIGHT: u16 = 240;
@@ -48,7 +53,9 @@ pub type Scene = fn(&mut VirtualLcd, u32) -> LcdResult<()>;
 fn pixel_format_for_controller(controller: ControllerModel) -> PixelFormat {
     match controller {
         ControllerModel::Ssd1306 => PixelFormat::Mono1,
-        ControllerModel::GenericMipiDcs | ControllerModel::Ili9341 => PixelFormat::Rgb565,
+        ControllerModel::GenericMipiDcs | ControllerModel::Ili9341 | ControllerModel::St7789 => {
+            PixelFormat::Rgb565
+        }
     }
 }
 
@@ -107,6 +114,7 @@ pub fn run_scene_with(
 
     let mut tick = 0u32;
     while renderer.is_open() {
+        lcd.update_touch(renderer.get_touch(lcd.visible_frame()));
         scene(&mut lcd, tick)?;
         lcd.present()?;
 
@@ -128,12 +136,30 @@ pub fn run_scene_with(
 
 pub fn frame_asset_for(width: usize, height: usize) -> (&'static str, ScreenRect) {
     match (width, height) {
-        (w, h) if w * 3 == h * 4 => ("frames/lcd_frame_4_3.svg", ScreenRect::new(80, 80, 960, 660)),
-        (w, h) if w * 9 == h * 16 => ("frames/lcd_frame_16_9.svg", ScreenRect::new(80, 80, 1360, 660)),
-        (w, h) if w * 9 == h * 21 => ("frames/lcd_frame_21_9.svg", ScreenRect::new(80, 80, 1860, 660)),
-        (w, h) if w == h => ("frames/lcd_frame_1_1.svg", ScreenRect::new(80, 80, 760, 760)),
-        (w, h) if w * 16 == h * 9 => ("frames/lcd_frame_9_16.svg", ScreenRect::new(80, 80, 660, 1360)),
-        _ => ("frames/lcd_frame_4_3.svg", ScreenRect::new(80, 80, 960, 660)),
+        (w, h) if w * 3 == h * 4 => (
+            "frames/lcd_frame_4_3.svg",
+            ScreenRect::new(80, 80, 960, 660),
+        ),
+        (w, h) if w * 9 == h * 16 => (
+            "frames/lcd_frame_16_9.svg",
+            ScreenRect::new(80, 80, 1360, 660),
+        ),
+        (w, h) if w * 9 == h * 21 => (
+            "frames/lcd_frame_21_9.svg",
+            ScreenRect::new(80, 80, 1860, 660),
+        ),
+        (w, h) if w == h => (
+            "frames/lcd_frame_1_1.svg",
+            ScreenRect::new(80, 80, 760, 760),
+        ),
+        (w, h) if w * 16 == h * 9 => (
+            "frames/lcd_frame_9_16.svg",
+            ScreenRect::new(80, 80, 660, 1360),
+        ),
+        _ => (
+            "frames/lcd_frame_4_3.svg",
+            ScreenRect::new(80, 80, 960, 660),
+        ),
     }
 }
 
@@ -145,7 +171,7 @@ mod tests {
     use virtual_lcd_core::{BufferingMode, ControllerModel, InterfaceType, LcdConfig, VirtualLcd};
     use virtual_lcd_sdk::{Color, Lcd};
 
-    use super::{frame_asset_for, scenes, script, ScreenRect};
+    use super::{ScreenRect, frame_asset_for, scenes, script};
 
     fn fast_config(width: u16, height: u16) -> LcdConfig {
         LcdConfig {
@@ -179,15 +205,24 @@ mod tests {
     fn frame_asset_selection_matches_supported_ratios() {
         assert_eq!(
             frame_asset_for(320, 240),
-            ("frames/lcd_frame_4_3.svg", ScreenRect::new(80, 80, 960, 660))
+            (
+                "frames/lcd_frame_4_3.svg",
+                ScreenRect::new(80, 80, 960, 660)
+            )
         );
         assert_eq!(
             frame_asset_for(240, 240),
-            ("frames/lcd_frame_1_1.svg", ScreenRect::new(80, 80, 760, 760))
+            (
+                "frames/lcd_frame_1_1.svg",
+                ScreenRect::new(80, 80, 760, 760)
+            )
         );
         assert_eq!(
             frame_asset_for(160, 90),
-            ("frames/lcd_frame_16_9.svg", ScreenRect::new(80, 80, 1360, 660))
+            (
+                "frames/lcd_frame_16_9.svg",
+                ScreenRect::new(80, 80, 1360, 660)
+            )
         );
     }
 
@@ -213,7 +248,10 @@ text 1 1 1 200 210 220 HI
         assert_eq!(program.controller, ControllerModel::Ili9341);
         assert_eq!(
             program.frame_asset(),
-            ("frames/handheld_classic.svg", ScreenRect::new(32, 34, 496, 432))
+            (
+                "frames/handheld_classic.svg",
+                ScreenRect::new(32, 34, 496, 432)
+            )
         );
 
         let mut lcd = VirtualLcd::new(fast_config(16, 12)).expect("config should be valid");
@@ -221,10 +259,22 @@ text 1 1 1 200 210 220 HI
         program.execute(&mut lcd).expect("script should execute");
         present_and_wait(&mut lcd);
 
-        assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::rgb(50, 60, 70)));
-        assert_eq!(lcd.visible_frame().get_pixel(2, 3), Some(Color::rgb(10, 20, 30)));
-        assert_eq!(lcd.visible_frame().get_pixel(0, 11), Some(Color::rgb(90, 100, 110)));
-        assert_eq!(lcd.visible_frame().get_pixel(6, 0), Some(Color::rgb(120, 130, 140)));
+        assert_eq!(
+            lcd.visible_frame().get_pixel(0, 0),
+            Some(Color::rgb(50, 60, 70))
+        );
+        assert_eq!(
+            lcd.visible_frame().get_pixel(2, 3),
+            Some(Color::rgb(10, 20, 30))
+        );
+        assert_eq!(
+            lcd.visible_frame().get_pixel(0, 11),
+            Some(Color::rgb(90, 100, 110))
+        );
+        assert_eq!(
+            lcd.visible_frame().get_pixel(6, 0),
+            Some(Color::rgb(120, 130, 140))
+        );
     }
 
     #[test]
@@ -269,6 +319,9 @@ text 1 1 1 200 210 220 HI
             .filter(|&&pixel| pixel == dark_logo)
             .count();
 
-        assert!(dark_pixels > 400, "expected visible logo pixels, got {dark_pixels}");
+        assert!(
+            dark_pixels > 400,
+            "expected visible logo pixels, got {dark_pixels}"
+        );
     }
 }

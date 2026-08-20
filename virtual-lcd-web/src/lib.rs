@@ -6,8 +6,8 @@ use virtual_lcd_core::{
     BufferingMode, ControllerModel, InterfaceType, LcdConfig, PixelFormat, VirtualLcd,
 };
 use virtual_lcd_examples::draw::{draw_blip, draw_text, fill_rect_safe};
-use virtual_lcd_examples::script::ScriptProgram;
 use virtual_lcd_examples::scenes;
+use virtual_lcd_examples::script::ScriptProgram;
 use virtual_lcd_sdk::{Color, Lcd};
 
 const DEFAULT_FPS: u16 = 60;
@@ -116,8 +116,9 @@ impl WebSimulator {
     }
 
     pub fn set_scene(&mut self, name: &str) -> Result<(), JsValue> {
-        let scene = SceneKind::from_name(name)
-            .ok_or_else(|| JsValue::from_str("Cena desconhecida. Use: dashboard|oscilloscope|startup|gameboy"))?;
+        let scene = SceneKind::from_name(name).ok_or_else(|| {
+            JsValue::from_str("Cena desconhecida. Use: dashboard|oscilloscope|startup|gameboy")
+        })?;
         self.mode = Mode::Scene(scene);
         self.reset()
     }
@@ -176,6 +177,7 @@ impl WebSimulator {
             ControllerModel::GenericMipiDcs => "generic".to_string(),
             ControllerModel::Ili9341 => "ili9341".to_string(),
             ControllerModel::Ssd1306 => "ssd1306".to_string(),
+            ControllerModel::St7789 => "st7789".to_string(),
         }
     }
 
@@ -183,6 +185,16 @@ impl WebSimulator {
         self.pointer_x = x.min(self.width().saturating_sub(1));
         self.pointer_y = y.min(self.height().saturating_sub(1));
         self.pointer_down = down;
+
+        let state = if down {
+            virtual_lcd_core::touch::TouchState::Pressed {
+                x: self.pointer_x,
+                y: self.pointer_y,
+            }
+        } else {
+            virtual_lcd_core::touch::TouchState::Released
+        };
+        self.lcd.update_touch(state);
     }
 
     pub fn set_button(&mut self, name: &str, pressed: bool) {
@@ -221,7 +233,9 @@ impl WebSimulator {
 
         let pixel_format = match controller {
             ControllerModel::Ssd1306 => PixelFormat::Mono1,
-            ControllerModel::GenericMipiDcs | ControllerModel::Ili9341 => PixelFormat::Rgb565,
+            ControllerModel::GenericMipiDcs
+            | ControllerModel::Ili9341
+            | ControllerModel::St7789 => PixelFormat::Rgb565,
         };
 
         let config = LcdConfig {
@@ -255,7 +269,14 @@ impl WebSimulator {
         if self.buttons != 0 {
             let h = self.height();
             let w = self.width();
-            fill_rect_safe(&mut self.lcd, 0, h.saturating_sub(16), w, 16, Color::rgb(8, 18, 28))?;
+            fill_rect_safe(
+                &mut self.lcd,
+                0,
+                h.saturating_sub(16),
+                w,
+                16,
+                Color::rgb(8, 18, 28),
+            )?;
 
             let labels = [
                 ("U", 0b0000_0001),

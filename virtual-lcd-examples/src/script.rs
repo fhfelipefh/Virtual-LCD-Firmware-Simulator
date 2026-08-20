@@ -4,9 +4,9 @@ use virtual_lcd_core::{ControllerModel, Result as LcdResult, VirtualLcd};
 use virtual_lcd_sdk::{Color, Lcd};
 
 use crate::draw::{
-    draw_circle, draw_line, draw_rect_outline, draw_text, fill_vertical_gradient, fill_rect_safe,
+    draw_circle, draw_line, draw_rect_outline, draw_text, fill_rect_safe, fill_vertical_gradient,
 };
-use crate::{frame_asset_for, ScreenRect};
+use crate::{ScreenRect, frame_asset_for};
 
 #[derive(Debug, Clone)]
 pub struct ScriptProgram {
@@ -89,11 +89,15 @@ impl ScriptProgram {
                         "generic" | "generic-mipi-dcs" => ControllerModel::GenericMipiDcs,
                         "ili9341" => ControllerModel::Ili9341,
                         "ssd1306" => ControllerModel::Ssd1306,
+                        "st7789" => ControllerModel::St7789,
                         other => return Err(ScriptError::InvalidController(other.to_string())),
                     };
                 }
                 "frame" => {
-                    frame = match parts.next().ok_or(ScriptError::MissingArgument("frame preset"))? {
+                    frame = match parts
+                        .next()
+                        .ok_or(ScriptError::MissingArgument("frame preset"))?
+                    {
                         "auto" => FramePreset::Auto,
                         "handheld" => FramePreset::Handheld,
                         other => return Err(ScriptError::InvalidFramePreset(other.to_string())),
@@ -170,14 +174,20 @@ impl ScriptProgram {
         for command in &self.commands {
             match command {
                 Command::Clear(color) => lcd.clear(*color)?,
-                Command::FillRect(x, y, w, h, color) => fill_rect_safe(lcd, *x, *y, *w, *h, *color)?,
+                Command::FillRect(x, y, w, h, color) => {
+                    fill_rect_safe(lcd, *x, *y, *w, *h, *color)?
+                }
                 Command::Rect(x, y, w, h, color) => draw_rect_outline(lcd, *x, *y, *w, *h, *color)?,
                 Command::Line(x0, y0, x1, y1, color) => draw_line(lcd, *x0, *y0, *x1, *y1, *color)?,
-                Command::Circle(cx, cy, radius, color) => draw_circle(lcd, *cx, *cy, *radius, *color)?,
+                Command::Circle(cx, cy, radius, color) => {
+                    draw_circle(lcd, *cx, *cy, *radius, *color)?
+                }
                 Command::Gradient(x, y, w, h, top, bottom) => {
                     fill_vertical_gradient(lcd, *x, *y, *w, *h, *top, *bottom)?
                 }
-                Command::Text(x, y, scale, color, text) => draw_text(lcd, *x, *y, *scale, *color, text)?,
+                Command::Text(x, y, scale, color, text) => {
+                    draw_text(lcd, *x, *y, *scale, *color, text)?
+                }
             }
         }
         Ok(())

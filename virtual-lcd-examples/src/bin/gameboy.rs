@@ -1,5 +1,5 @@
-use virtual_lcd_examples::{run_scene_with, scenes, RuntimeOptions, ScreenRect};
 use virtual_lcd_core::ControllerModel;
+use virtual_lcd_examples::{RuntimeOptions, ScreenRect, run_scene_with, scenes};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_scene_with(

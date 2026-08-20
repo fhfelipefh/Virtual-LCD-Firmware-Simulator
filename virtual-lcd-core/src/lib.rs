@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
+use instant::Instant;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
-use std::collections::BTreeMap;
-use instant::Instant;
 
 pub use virtual_lcd_sdk::{Color, Lcd, LcdBus, PinId};
 
@@ -15,6 +15,7 @@ pub enum ControllerModel {
     GenericMipiDcs,
     Ili9341,
     Ssd1306,
+    St7789,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,7 +56,9 @@ impl Default for LcdConfig {
 impl LcdConfig {
     fn validate(&self) -> Result<()> {
         if self.width == 0 || self.height == 0 {
-            return Err(LcdError::InvalidConfig("display dimensions must be non-zero"));
+            return Err(LcdError::InvalidConfig(
+                "display dimensions must be non-zero",
+            ));
         }
 
         if self.fps == 0 {
@@ -68,15 +71,21 @@ impl LcdConfig {
 
         if matches!(self.controller, ControllerModel::Ssd1306) {
             if self.width > 128 {
-                return Err(LcdError::InvalidConfig("ssd1306 width must be 128 pixels or smaller"));
+                return Err(LcdError::InvalidConfig(
+                    "ssd1306 width must be 128 pixels or smaller",
+                ));
             }
 
             if self.height > 64 {
-                return Err(LcdError::InvalidConfig("ssd1306 height must be 64 pixels or smaller"));
+                return Err(LcdError::InvalidConfig(
+                    "ssd1306 height must be 64 pixels or smaller",
+                ));
             }
 
             if self.height % 8 != 0 {
-                return Err(LcdError::InvalidConfig("ssd1306 height must be a multiple of 8"));
+                return Err(LcdError::InvalidConfig(
+                    "ssd1306 height must be a multiple of 8",
+                ));
             }
         }
 
@@ -160,17 +169,19 @@ impl DrawWindow {
         }
     }
 
-    pub fn from_origin(x: u16, y: u16, width: u16, height: u16, config: &LcdConfig) -> Result<Self> {
+    pub fn from_origin(
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        config: &LcdConfig,
+    ) -> Result<Self> {
         if width == 0 || height == 0 {
             return Err(LcdError::InvalidWindow);
         }
 
-        let x_end = x
-            .checked_add(width - 1)
-            .ok_or(LcdError::OutOfBounds)?;
-        let y_end = y
-            .checked_add(height - 1)
-            .ok_or(LcdError::OutOfBounds)?;
+        let x_end = x.checked_add(width - 1).ok_or(LcdError::OutOfBounds)?;
+        let y_end = y.checked_add(height - 1).ok_or(LcdError::OutOfBounds)?;
 
         if x_end >= config.width || y_end >= config.height {
             return Err(LcdError::OutOfBounds);
@@ -249,6 +260,7 @@ enum ControllerRuntime {
     Generic,
     Ili9341(Ili9341State),
     Ssd1306(Ssd1306State),
+    St7789(St7789State),
 }
 
 impl ControllerRuntime {
@@ -257,6 +269,7 @@ impl ControllerRuntime {
             ControllerModel::GenericMipiDcs => Self::Generic,
             ControllerModel::Ili9341 => Self::Ili9341(Ili9341State::new(config)),
             ControllerModel::Ssd1306 => Self::Ssd1306(Ssd1306State::new(config)),
+            ControllerModel::St7789 => Self::St7789(St7789State::new(config)),
         }
     }
 
@@ -265,6 +278,7 @@ impl ControllerRuntime {
             Self::Generic => {}
             Self::Ili9341(state) => *state = Ili9341State::new(config),
             Self::Ssd1306(state) => *state = Ssd1306State::new(config),
+            Self::St7789(state) => *state = St7789State::new(config),
         }
     }
 
@@ -273,14 +287,177 @@ impl ControllerRuntime {
             Self::Generic => fallback.bytes_per_pixel(),
             Self::Ili9341(state) => state.interface_pixel_format().bytes_per_pixel(),
             Self::Ssd1306(_) => PixelFormat::Mono1.bytes_per_pixel(),
+            Self::St7789(state) => state.interface_pixel_format().bytes_per_pixel(),
         }
     }
 
     fn native_frame_bytes(&self, config: &LcdConfig) -> usize {
         match self {
-            Self::Generic | Self::Ili9341(_) => config.full_frame_bytes(),
+            Self::Generic | Self::Ili9341(_) | Self::St7789(_) => config.full_frame_bytes(),
             Self::Ssd1306(state) => state.gddram.len(),
         }
+    }
+}
+
+#[derive(Debug)]
+struct St7789State {
+    madctl: u8,
+    colmod: u8,
+    inversion_on: bool,
+    tearing_enabled: bool,
+    tearing_mode: u8,
+    brightness: u8,
+    control_display: u8,
+    scroll: VerticalScrollState,
+    raw_registers: BTreeMap<u8, Vec<u8>>,
+}
+
+impl St7789State {
+    const MADCTL_MY: u8 = 0x80;
+    const MADCTL_MX: u8 = 0x40;
+    const MADCTL_MV: u8 = 0x20;
+    const MADCTL_BGR: u8 = 0x08;
+
+    fn new(config: &LcdConfig) -> Self {
+        Self {
+            madctl: 0x00,
+            colmod: 0x55,
+            inversion_on: true,
+            tearing_enabled: config.tearing_effect,
+            tearing_mode: 0x00,
+            brightness: if config.backlight { 0xFF } else { 0x00 },
+            control_display: 0x24,
+            scroll: VerticalScrollState::new(config.height),
+            raw_registers: BTreeMap::new(),
+        }
+    }
+
+    fn interface_pixel_format(&self) -> PixelFormat {
+        match self.colmod & 0x77 {
+            0x55 => PixelFormat::Rgb565,
+            0x66 => PixelFormat::Rgb888,
+            _ => PixelFormat::Rgb565,
+        }
+    }
+
+    fn decode_interface_color(&self, bytes: &[u8]) -> Color {
+        match self.interface_pixel_format() {
+            PixelFormat::Rgb565 => PixelFormat::Rgb565.decode_color(bytes),
+            PixelFormat::Rgb888 => {
+                let expand = |value: u8| (value << 2) | (value >> 4);
+                Color::rgb(expand(bytes[0]), expand(bytes[1]), expand(bytes[2]))
+            }
+            other => other.decode_color(bytes),
+        }
+    }
+
+    fn map_logical_to_memory(&self, x: u16, y: u16, config: &LcdConfig) -> Result<(u16, u16)> {
+        let width = config.width;
+        let height = config.height;
+
+        let logical_y = self.scroll.map_visible_row(y, height);
+        let mx = self.madctl & Self::MADCTL_MX != 0;
+        let my = self.madctl & Self::MADCTL_MY != 0;
+        let mv = self.madctl & Self::MADCTL_MV != 0;
+
+        let (mut mem_x, mut mem_y) = if mv {
+            let mem_x = if mx {
+                width.checked_sub(logical_y + 1).unwrap_or(0)
+            } else {
+                logical_y
+            };
+            let mem_y = if my {
+                height.checked_sub(x + 1).unwrap_or(0)
+            } else {
+                x
+            };
+            (mem_x, mem_y)
+        } else {
+            let mem_x = if mx {
+                width.checked_sub(x + 1).unwrap_or(0)
+            } else {
+                x
+            };
+            let mem_y = if my {
+                height.checked_sub(logical_y + 1).unwrap_or(0)
+            } else {
+                logical_y
+            };
+            (mem_x, mem_y)
+        };
+
+        let (offset_x, offset_y) = match (config.width, config.height) {
+            (240, 240) => (0, 80),
+            (135, 240) => (52, 40),
+            _ => (0, 0),
+        };
+
+        mem_x = mem_x.saturating_add(offset_x);
+        mem_y = mem_y.saturating_add(offset_y);
+
+        Ok((mem_x, mem_y))
+    }
+
+    fn write_pixel_coords(
+        &self,
+        window: DrawWindow,
+        next_pixel: usize,
+        config: &LcdConfig,
+    ) -> Result<(u16, u16)> {
+        let dx = (next_pixel % window.width as usize) as u16;
+        let dy = (next_pixel / window.width as usize) as u16;
+        self.map_logical_to_memory(window.x + dx, window.y + dy, config)
+    }
+
+    fn apply_visible_transform(
+        &self,
+        memory: &Framebuffer,
+        visible: &mut Framebuffer,
+        state: &LcdState,
+        config: &LcdConfig,
+    ) -> Result<()> {
+        if !state.display_on || state.sleeping || state.backlight == 0 || self.brightness == 0 {
+            visible.clear(Color::BLACK);
+            return Ok(());
+        }
+
+        let is_bgr = self.madctl & Self::MADCTL_BGR != 0;
+
+        for y in 0..config.height {
+            for x in 0..config.width {
+                let (mem_x, mem_y) = self.map_logical_to_memory(x, y, config)?;
+                let mut color = memory.get_pixel(mem_x, mem_y).unwrap_or(Color::BLACK);
+
+                if is_bgr {
+                    color = Color::rgb(color.b, color.g, color.r);
+                }
+
+                if self.inversion_on {
+                    color = Color::rgb(255 - color.r, 255 - color.g, 255 - color.b);
+                }
+
+                visible.set_pixel(x, y, color)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn power_mode(&self, state: &LcdState) -> u8 {
+        let mut mode = 0u8;
+        if !state.sleeping {
+            mode |= 0x08;
+        }
+        if state.display_on {
+            mode |= 0x04;
+        }
+        if self.interface_pixel_format() == PixelFormat::Rgb565 {
+            mode |= 0x02;
+        }
+        if state.initialized {
+            mode |= 0x80;
+        }
+        mode
     }
 }
 
@@ -711,11 +888,7 @@ impl Ssd1306State {
                 (logical_y + self.start_line as u16 + self.display_offset as u16) % height.max(1);
 
             for x in 0..width {
-                let memory_x = if self.segment_remap {
-                    width - 1 - x
-                } else {
-                    x
-                };
+                let memory_x = if self.segment_remap { width - 1 - x } else { x };
 
                 let pixel_on = if self.entire_display_on {
                     true
@@ -954,7 +1127,8 @@ impl TimingEngine {
     }
 
     fn time_until_ready(&self) -> Option<Duration> {
-        self.pending_ready_at.map(|ready_at| ready_at.saturating_duration_since(Instant::now()))
+        self.pending_ready_at
+            .map(|ready_at| ready_at.saturating_duration_since(Instant::now()))
     }
 
     fn clear_pending(&mut self) {
@@ -1043,9 +1217,12 @@ impl MemoryWriteProgress {
     }
 }
 
+pub mod touch;
+
 #[derive(Debug)]
 pub struct VirtualLcd {
     config: LcdConfig,
+    touch: touch::TouchState,
     state: LcdState,
     controller: ControllerRuntime,
     front_buffer: Framebuffer,
@@ -1074,6 +1251,7 @@ impl VirtualLcd {
             pins: PinBank::default(),
             timing,
             pending_write: PendingWrite::None,
+            touch: touch::TouchState::Released,
         })
     }
 
@@ -1087,6 +1265,42 @@ impl VirtualLcd {
 
     pub fn pins(&self) -> &PinBank {
         &self.pins
+    }
+
+    pub fn update_touch(&mut self, state: touch::TouchState) {
+        self.touch = state;
+    }
+
+    pub fn read_touch_i2c(
+        &mut self,
+        _addr: u8,
+        reg: u8,
+        data: &mut [u8],
+    ) -> std::result::Result<(), ()> {
+        // FT6236 basic emulation
+        match reg {
+            0x02 => {
+                // TD_STATUS (number of touch points)
+                data[0] = match self.touch {
+                    touch::TouchState::Pressed { .. } => 1,
+                    touch::TouchState::Released => 0,
+                };
+                Ok(())
+            }
+            0x03 => {
+                // P1_XH, P1_XL, P1_YH, P1_YL
+                if let touch::TouchState::Pressed { x, y } = self.touch {
+                    if data.len() >= 4 {
+                        data[0] = ((x >> 8) & 0x0F) as u8; // XH (and event flag)
+                        data[1] = (x & 0xFF) as u8; // XL
+                        data[2] = ((y >> 8) & 0x0F) as u8; // YH (and touch ID)
+                        data[3] = (y & 0xFF) as u8; // YL
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     pub fn visible_frame(&self) -> &Framebuffer {
@@ -1104,16 +1318,20 @@ impl VirtualLcd {
     pub fn set_window(&mut self, x: u16, y: u16, width: u16, height: u16) -> Result<()> {
         self.ensure_ready_for_graphics()?;
         let window = DrawWindow::from_origin(x, y, width, height, &self.config)?;
-        self.state.set_column_range(window.x, window.x + window.width - 1);
-        self.state.set_row_range(window.y, window.y + window.height - 1);
+        self.state
+            .set_column_range(window.x, window.x + window.width - 1);
+        self.state
+            .set_row_range(window.y, window.y + window.height - 1);
         Ok(())
     }
 
     pub fn set_address_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result<()> {
         self.ensure_ready_for_graphics()?;
         let window = DrawWindow::from_inclusive(x0, y0, x1, y1, &self.config)?;
-        self.state.set_column_range(window.x, window.x + window.width - 1);
-        self.state.set_row_range(window.y, window.y + window.height - 1);
+        self.state
+            .set_column_range(window.x, window.x + window.width - 1);
+        self.state
+            .set_row_range(window.y, window.y + window.height - 1);
         Ok(())
     }
 
@@ -1205,7 +1423,9 @@ impl VirtualLcd {
         }
 
         if !self.pins.level(PinId::Rst) {
-            return Err(LcdError::BusViolation("cannot access bus while reset is asserted"));
+            return Err(LcdError::BusViolation(
+                "cannot access bus while reset is asserted",
+            ));
         }
 
         Ok(())
@@ -1226,6 +1446,14 @@ impl VirtualLcd {
                 }
             }
             ControllerRuntime::Ili9341(controller) => {
+                controller.apply_visible_transform(
+                    &self.back_buffer,
+                    &mut self.front_buffer,
+                    &self.state,
+                    &self.config,
+                )?;
+            }
+            ControllerRuntime::St7789(controller) => {
                 controller.apply_visible_transform(
                     &self.back_buffer,
                     &mut self.front_buffer,
@@ -1265,7 +1493,12 @@ impl VirtualLcd {
         Ok(())
     }
 
-    fn process_address_data(&mut self, accumulator: &mut AddressAccumulator, data: &[u8], is_column: bool) -> Result<usize> {
+    fn process_address_data(
+        &mut self,
+        accumulator: &mut AddressAccumulator,
+        data: &[u8],
+        is_column: bool,
+    ) -> Result<usize> {
         let consumed = accumulator.push(data);
         if accumulator.complete() {
             let (start, end) = accumulator.decode();
@@ -1287,17 +1520,25 @@ impl VirtualLcd {
                 )?
             };
 
-            self.state.set_column_range(window.x, window.x + window.width - 1);
-            self.state.set_row_range(window.y, window.y + window.height - 1);
+            self.state
+                .set_column_range(window.x, window.x + window.width - 1);
+            self.state
+                .set_row_range(window.y, window.y + window.height - 1);
         }
 
         Ok(consumed)
     }
 
-    fn process_memory_write(&mut self, progress: &mut MemoryWriteProgress, data: &[u8]) -> Result<usize> {
+    fn process_memory_write(
+        &mut self,
+        progress: &mut MemoryWriteProgress,
+        data: &[u8],
+    ) -> Result<usize> {
         self.ensure_memory_access()?;
 
-        let bytes_per_pixel = self.controller.visible_bytes_per_pixel(self.config.pixel_format);
+        let bytes_per_pixel = self
+            .controller
+            .visible_bytes_per_pixel(self.config.pixel_format);
         if data.len() > progress.remaining_bytes(bytes_per_pixel) {
             return Err(LcdError::InvalidDataLength {
                 expected: progress.remaining_bytes(bytes_per_pixel),
@@ -1316,18 +1557,26 @@ impl VirtualLcd {
                         .config
                         .pixel_format
                         .decode_color(&progress.partial_pixel[..bytes_per_pixel]),
-                    ControllerRuntime::Ili9341(controller) => {
-                        controller.decode_interface_color(&progress.partial_pixel[..bytes_per_pixel])
-                    }
+                    ControllerRuntime::Ili9341(controller) => controller
+                        .decode_interface_color(&progress.partial_pixel[..bytes_per_pixel]),
+                    ControllerRuntime::St7789(controller) => controller
+                        .decode_interface_color(&progress.partial_pixel[..bytes_per_pixel]),
                     ControllerRuntime::Ssd1306(_) => {
                         unreachable!("ssd1306 does not use MIPI-style memory write sequencing")
                     }
                 };
                 let (x, y) = match &self.controller {
                     ControllerRuntime::Generic => progress.current_coords(),
-                    ControllerRuntime::Ili9341(controller) => {
-                        controller.write_pixel_coords(progress.window, progress.next_pixel, &self.config)?
-                    }
+                    ControllerRuntime::Ili9341(controller) => controller.write_pixel_coords(
+                        progress.window,
+                        progress.next_pixel,
+                        &self.config,
+                    )?,
+                    ControllerRuntime::St7789(controller) => controller.write_pixel_coords(
+                        progress.window,
+                        progress.next_pixel,
+                        &self.config,
+                    )?,
                     ControllerRuntime::Ssd1306(_) => {
                         unreachable!("ssd1306 does not use MIPI-style memory write sequencing")
                     }
@@ -1369,10 +1618,23 @@ impl VirtualLcd {
                 controller.madctl = data[0];
                 refresh_visible = true;
             }
+            (ControllerRuntime::St7789(controller), RegisterKind::Madctl) => {
+                controller.madctl = data[0];
+                refresh_visible = true;
+            }
             (ControllerRuntime::Ili9341(controller), RegisterKind::Colmod) => {
                 controller.colmod = data[0];
             }
+            (ControllerRuntime::St7789(controller), RegisterKind::Colmod) => {
+                controller.colmod = data[0];
+            }
             (ControllerRuntime::Ili9341(controller), RegisterKind::VerticalScrollDefinition) => {
+                controller.scroll.top_fixed_area = u16::from_be_bytes([data[0], data[1]]);
+                controller.scroll.scroll_area = u16::from_be_bytes([data[2], data[3]]);
+                controller.scroll.bottom_fixed_area = u16::from_be_bytes([data[4], data[5]]);
+                refresh_visible = true;
+            }
+            (ControllerRuntime::St7789(controller), RegisterKind::VerticalScrollDefinition) => {
                 controller.scroll.top_fixed_area = u16::from_be_bytes([data[0], data[1]]);
                 controller.scroll.scroll_area = u16::from_be_bytes([data[2], data[3]]);
                 controller.scroll.bottom_fixed_area = u16::from_be_bytes([data[4], data[5]]);
@@ -1383,17 +1645,32 @@ impl VirtualLcd {
                     u16::from_be_bytes([data[0], data[1]]) % controller.scroll.scroll_area.max(1);
                 refresh_visible = true;
             }
+            (ControllerRuntime::St7789(controller), RegisterKind::VerticalScrollStart) => {
+                controller.scroll.start_address =
+                    u16::from_be_bytes([data[0], data[1]]) % controller.scroll.scroll_area.max(1);
+                refresh_visible = true;
+            }
             (ControllerRuntime::Ili9341(controller), RegisterKind::Brightness) => {
+                controller.brightness = data[0];
+                refresh_visible = true;
+            }
+            (ControllerRuntime::St7789(controller), RegisterKind::Brightness) => {
                 controller.brightness = data[0];
                 refresh_visible = true;
             }
             (ControllerRuntime::Ili9341(controller), RegisterKind::ControlDisplay) => {
                 controller.control_display = data[0];
             }
+            (ControllerRuntime::St7789(controller), RegisterKind::ControlDisplay) => {
+                controller.control_display = data[0];
+            }
             (ControllerRuntime::Ili9341(controller), RegisterKind::InterfaceControl) => {
                 controller.interface_control.copy_from_slice(&data[..3]);
             }
             (ControllerRuntime::Ili9341(controller), RegisterKind::Raw(cmd)) => {
+                controller.raw_registers.insert(cmd, data.to_vec());
+            }
+            (ControllerRuntime::St7789(controller), RegisterKind::Raw(cmd)) => {
                 controller.raw_registers.insert(cmd, data.to_vec());
             }
             (ControllerRuntime::Ssd1306(controller), RegisterKind::Ssd1306MemoryMode) => {
@@ -1439,6 +1716,7 @@ impl VirtualLcd {
             }
             (ControllerRuntime::Generic, _) => {}
             (ControllerRuntime::Ili9341(_), _) => {}
+            (ControllerRuntime::St7789(_), _) => {}
             (ControllerRuntime::Ssd1306(_), _) => {}
         }
 
@@ -1462,13 +1740,17 @@ impl Lcd for VirtualLcd {
         if let ControllerRuntime::Ili9341(controller) = &mut self.controller {
             controller.brightness = if self.config.backlight { 0xFF } else { 0x00 };
         }
+        if let ControllerRuntime::St7789(controller) = &mut self.controller {
+            controller.brightness = if self.config.backlight { 0xFF } else { 0x00 };
+        }
         self.rebuild_visible_frame()?;
         Ok(())
     }
 
     fn clear(&mut self, color: Color) -> Result<()> {
         self.ensure_ready_for_graphics()?;
-        self.back_buffer.clear(self.normalize_high_level_color(color));
+        self.back_buffer
+            .clear(self.normalize_high_level_color(color));
         self.sync_controller_window(DrawWindow::full(&self.config))?;
         Ok(())
     }
@@ -1492,7 +1774,9 @@ impl Lcd for VirtualLcd {
         self.ensure_ready_for_graphics()?;
 
         if !matches!(self.pending_write, PendingWrite::None) {
-            return Err(LcdError::BusViolation("cannot present while a bus transaction is active"));
+            return Err(LcdError::BusViolation(
+                "cannot present while a bus transaction is active",
+            ));
         }
 
         self.schedule_visible_update(self.controller.native_frame_bytes(&self.config))
@@ -1521,7 +1805,9 @@ impl LcdBus for VirtualLcd {
         self.validate_bus_access()?;
 
         if !matches!(self.pending_write, PendingWrite::None) {
-            return Err(LcdError::BusViolation("cannot start a new command before finishing data phase"));
+            return Err(LcdError::BusViolation(
+                "cannot start a new command before finishing data phase",
+            ));
         }
 
         self.state.current_command = Some(cmd);
@@ -1554,8 +1840,9 @@ impl LcdBus for VirtualLcd {
                 }
                 0x2C => {
                     self.ensure_memory_access()?;
-                    self.pending_write =
-                        PendingWrite::MemoryWrite(MemoryWriteProgress::new(self.state.current_window));
+                    self.pending_write = PendingWrite::MemoryWrite(MemoryWriteProgress::new(
+                        self.state.current_window,
+                    ));
                 }
                 _ => return Err(LcdError::InvalidCommand(cmd)),
             },
@@ -1609,8 +1896,9 @@ impl LcdBus for VirtualLcd {
                 }
                 0x2C => {
                     self.ensure_memory_access()?;
-                    self.pending_write =
-                        PendingWrite::MemoryWrite(MemoryWriteProgress::new(self.state.current_window));
+                    self.pending_write = PendingWrite::MemoryWrite(MemoryWriteProgress::new(
+                        self.state.current_window,
+                    ));
                 }
                 0x34 => {
                     if let ControllerRuntime::Ili9341(controller) = &mut self.controller {
@@ -1619,6 +1907,79 @@ impl LcdBus for VirtualLcd {
                 }
                 0x35 => {
                     if let ControllerRuntime::Ili9341(controller) = &mut self.controller {
+                        controller.tearing_enabled = true;
+                        controller.tearing_mode = 0x00;
+                    }
+                }
+                other => {
+                    if let Some(write) = self.ili9341_register_write_for_command(other) {
+                        self.pending_write = PendingWrite::Register(write);
+                    } else {
+                        return Err(LcdError::InvalidCommand(other));
+                    }
+                }
+            },
+            ControllerModel::St7789 => match cmd {
+                0x01 => {
+                    self.hardware_reset();
+                    self.state.current_command = Some(cmd);
+                }
+                0x04 | 0x09 | 0x0A | 0x0B | 0x0C | 0x0F | 0x2E | 0x45 | 0x52 | 0x54 | 0xDA
+                | 0xDB | 0xDC => {}
+                0x10 => {
+                    self.ensure_initialized_only()?;
+                    self.state.sleeping = true;
+                    self.rebuild_visible_frame()?;
+                }
+                0x11 => {
+                    self.state.initialized = true;
+                    self.state.sleeping = false;
+                    self.rebuild_visible_frame()?;
+                }
+                0x13 => {
+                    self.state.initialized = true;
+                }
+                0x20 => {
+                    if let ControllerRuntime::St7789(controller) = &mut self.controller {
+                        controller.inversion_on = false;
+                    }
+                }
+                0x21 => {
+                    if let ControllerRuntime::St7789(controller) = &mut self.controller {
+                        controller.inversion_on = true;
+                    }
+                }
+                0x28 => {
+                    self.ensure_initialized_only()?;
+                    self.state.display_on = false;
+                    self.rebuild_visible_frame()?;
+                }
+                0x29 => {
+                    self.ensure_initialized_only()?;
+                    self.state.display_on = true;
+                    self.rebuild_visible_frame()?;
+                }
+                0x2A => {
+                    self.ensure_initialized_only()?;
+                    self.pending_write = PendingWrite::Column(AddressAccumulator::new());
+                }
+                0x2B => {
+                    self.ensure_initialized_only()?;
+                    self.pending_write = PendingWrite::Row(AddressAccumulator::new());
+                }
+                0x2C => {
+                    self.ensure_memory_access()?;
+                    self.pending_write = PendingWrite::MemoryWrite(MemoryWriteProgress::new(
+                        self.state.current_window,
+                    ));
+                }
+                0x34 => {
+                    if let ControllerRuntime::St7789(controller) = &mut self.controller {
+                        controller.tearing_enabled = false;
+                    }
+                }
+                0x35 => {
+                    if let ControllerRuntime::St7789(controller) = &mut self.controller {
                         controller.tearing_enabled = true;
                         controller.tearing_mode = 0x00;
                     }
@@ -1823,7 +2184,9 @@ impl LcdBus for VirtualLcd {
                     }
                     Ok(())
                 } else {
-                    Err(LcdError::BusViolation("data write without an active command"))
+                    Err(LcdError::BusViolation(
+                        "data write without an active command",
+                    ))
                 }
             }
             PendingWrite::Column(mut accumulator) => {
@@ -1878,8 +2241,8 @@ impl LcdBus for VirtualLcd {
 impl VirtualLcd {
     fn ili9341_register_write_for_command(&self, cmd: u8) -> Option<RegisterWrite> {
         let allowed_lengths: &'static [usize] = match cmd {
-            0x26 | 0x36 | 0x3A | 0x51 | 0x53 | 0x55 | 0x56 | 0xB0 | 0xB7 | 0xC0 | 0xC1
-            | 0xC7 | 0xF2 | 0xF7 => &[1],
+            0x26 | 0x36 | 0x3A | 0x51 | 0x53 | 0x55 | 0x56 | 0xB0 | 0xB7 | 0xC0 | 0xC1 | 0xC7
+            | 0xF2 | 0xF7 => &[1],
             0x37 | 0x44 | 0xB1 | 0xC5 | 0xEA => &[2],
             0xE8 | 0xF6 => &[3],
             0xB5 | 0xED => &[4],
@@ -1912,17 +2275,47 @@ impl VirtualLcd {
         let mut response = match (&self.controller, self.state.current_command) {
             (_, Some(0x04)) => vec![0x00, 0x00, 0x93, 0x41],
             (ControllerRuntime::Ili9341(controller), Some(0x09)) => {
-                vec![0x00, 0x00, controller.power_mode(&self.state), controller.madctl, controller.colmod]
+                vec![
+                    0x00,
+                    0x00,
+                    controller.power_mode(&self.state),
+                    controller.madctl,
+                    controller.colmod,
+                ]
+            }
+            (ControllerRuntime::St7789(controller), Some(0x09)) => {
+                vec![
+                    0x00,
+                    0x00,
+                    controller.power_mode(&self.state),
+                    controller.madctl,
+                    controller.colmod,
+                ]
             }
             (ControllerRuntime::Ili9341(controller), Some(0x0A)) => {
                 vec![0x00, controller.power_mode(&self.state)]
             }
+            (ControllerRuntime::St7789(controller), Some(0x0A)) => {
+                vec![0x00, controller.power_mode(&self.state)]
+            }
             (ControllerRuntime::Ili9341(controller), Some(0x0B)) => vec![0x00, controller.madctl],
+            (ControllerRuntime::St7789(controller), Some(0x0B)) => vec![0x00, controller.madctl],
             (ControllerRuntime::Ili9341(controller), Some(0x0C)) => vec![0x00, controller.colmod],
+            (ControllerRuntime::St7789(controller), Some(0x0C)) => vec![0x00, controller.colmod],
             (ControllerRuntime::Ili9341(_), Some(0x0F)) => vec![0x00, 0xC0],
+            (ControllerRuntime::St7789(_), Some(0x0F)) => vec![0x00, 0xC0],
             (ControllerRuntime::Ili9341(_), Some(0x45)) => vec![0x00, 0x00, 0x00],
-            (ControllerRuntime::Ili9341(controller), Some(0x52)) => vec![0x00, controller.brightness],
+            (ControllerRuntime::St7789(_), Some(0x45)) => vec![0x00, 0x00, 0x00],
+            (ControllerRuntime::Ili9341(controller), Some(0x52)) => {
+                vec![0x00, controller.brightness]
+            }
+            (ControllerRuntime::St7789(controller), Some(0x52)) => {
+                vec![0x00, controller.brightness]
+            }
             (ControllerRuntime::Ili9341(controller), Some(0x54)) => {
+                vec![0x00, controller.control_display]
+            }
+            (ControllerRuntime::St7789(controller), Some(0x54)) => {
                 vec![0x00, controller.control_display]
             }
             (_, Some(0xDA)) => vec![0x00],
@@ -1930,6 +2323,9 @@ impl VirtualLcd {
             (_, Some(0xDC)) => vec![0x41],
             (ControllerRuntime::Ili9341(controller), Some(0x2E)) => {
                 self.build_ili9341_memory_read(controller, len)
+            }
+            (ControllerRuntime::St7789(controller), Some(0x2E)) => {
+                self.build_st7789_memory_read(controller, len)
             }
             _ => vec![0x00; len],
         };
@@ -1963,8 +2359,46 @@ impl VirtualLcd {
                     }
                     format => {
                         let mut raw = [0u8; 3];
-                        raw[..format.bytes_per_pixel()]
-                            .copy_from_slice(&[color.r, color.g, color.b][..format.bytes_per_pixel()]);
+                        raw[..format.bytes_per_pixel()].copy_from_slice(
+                            &[color.r, color.g, color.b][..format.bytes_per_pixel()],
+                        );
+                        out.extend_from_slice(&raw[..bytes_per_pixel]);
+                    }
+                }
+            }
+        }
+
+        out.truncate(len);
+        out
+    }
+    fn build_st7789_memory_read(&self, controller: &St7789State, len: usize) -> Vec<u8> {
+        let window = self.state.current_window;
+        let bytes_per_pixel = controller.interface_pixel_format().bytes_per_pixel();
+        let mut out = Vec::with_capacity(len.max(1));
+        out.push(0x00);
+
+        for index in 0..window.area() {
+            if out.len() >= len {
+                break;
+            }
+
+            if let Ok((x, y)) = controller.write_pixel_coords(window, index, &self.config) {
+                let color = self.back_buffer.get_pixel(x, y).unwrap_or(Color::BLACK);
+                match controller.interface_pixel_format() {
+                    PixelFormat::Rgb565 => {
+                        let bytes = color.to_rgb565().to_be_bytes();
+                        out.extend_from_slice(&bytes);
+                    }
+                    PixelFormat::Rgb888 => {
+                        out.push(color.r & 0xFC);
+                        out.push(color.g & 0xFC);
+                        out.push(color.b & 0xFC);
+                    }
+                    format => {
+                        let mut raw = [0u8; 3];
+                        raw[..format.bytes_per_pixel()].copy_from_slice(
+                            &[color.r, color.g, color.b][..format.bytes_per_pixel()],
+                        );
                         out.extend_from_slice(&raw[..bytes_per_pixel]);
                     }
                 }
@@ -2009,10 +2443,15 @@ impl Display for LcdError {
             Self::OutOfBounds => f.write_str("coordinates are out of bounds"),
             Self::InvalidCommand(cmd) => write!(f, "invalid command 0x{cmd:02X}"),
             Self::InvalidDataLength { expected, got } => {
-                write!(f, "invalid data length: expected {expected} bytes, got {got}")
+                write!(
+                    f,
+                    "invalid data length: expected {expected} bytes, got {got}"
+                )
             }
             Self::BusViolation(message) => write!(f, "bus violation: {message}"),
-            Self::FrameRateExceeded => f.write_str("frame submitted before the previous transfer completed"),
+            Self::FrameRateExceeded => {
+                f.write_str("frame submitted before the previous transfer completed")
+            }
         }
     }
 }
@@ -2073,7 +2512,8 @@ mod tests {
 
     fn bus_ready_ili9341() -> VirtualLcd {
         let mut lcd = VirtualLcd::new(fast_config()).expect("config should be valid");
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
         lcd.write_command(0x11).expect("sleep out should succeed");
         lcd.write_command(0x29).expect("display on should succeed");
         lcd
@@ -2081,7 +2521,8 @@ mod tests {
 
     fn bus_ready_ssd1306() -> VirtualLcd {
         let mut lcd = VirtualLcd::new(fast_ssd1306_config()).expect("config should be valid");
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
         lcd.write_command(0xAE).expect("display off should succeed");
         write_command_with_data(&mut lcd, 0x20, &[0x02]);
         lcd.write_command(0xAF).expect("display on should succeed");
@@ -2090,8 +2531,9 @@ mod tests {
 
     fn write_command_with_data(lcd: &mut VirtualLcd, cmd: u8, data: &[u8]) {
         lcd.write_command(cmd).expect("command should succeed");
-        lcd.write_data(data)
-            .unwrap_or_else(|error| panic!("data for command 0x{cmd:02X} should succeed: {error:?}"));
+        lcd.write_data(data).unwrap_or_else(|error| {
+            panic!("data for command 0x{cmd:02X} should succeed: {error:?}")
+        });
     }
 
     #[test]
@@ -2114,7 +2556,8 @@ mod tests {
         let mut lcd = bus_ready_ili9341();
         write_command_with_data(&mut lcd, 0x3A, &[0x55]);
 
-        lcd.write_command(0x2A).expect("column command should succeed");
+        lcd.write_command(0x2A)
+            .expect("column command should succeed");
         lcd.write_data(&[0x00, 0x00, 0x00, 0x01])
             .expect("column data should succeed");
         lcd.write_command(0x2B).expect("row command should succeed");
@@ -2127,7 +2570,8 @@ mod tests {
         let mut pixels = Vec::new();
         pixels.extend_from_slice(&red);
         pixels.extend_from_slice(&green);
-        lcd.write_data(&pixels).expect("pixel payload should succeed");
+        lcd.write_data(&pixels)
+            .expect("pixel payload should succeed");
 
         wait_until_visible(&mut lcd);
 
@@ -2138,7 +2582,8 @@ mod tests {
     #[test]
     fn ili9341_common_init_sequence_is_accepted() {
         let mut lcd = VirtualLcd::new(fast_config()).expect("config should be valid");
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
 
         write_command_with_data(&mut lcd, 0xCB, &[0x39, 0x2C, 0x00, 0x34, 0x02]);
         write_command_with_data(&mut lcd, 0xCF, &[0x00, 0xC1, 0x30]);
@@ -2157,12 +2602,18 @@ mod tests {
         write_command_with_data(
             &mut lcd,
             0xE0,
-            &[0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00],
+            &[
+                0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09,
+                0x00,
+            ],
         );
         write_command_with_data(
             &mut lcd,
             0xE1,
-            &[0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F],
+            &[
+                0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36,
+                0x0F,
+            ],
         );
         lcd.write_command(0x11).expect("sleep out should succeed");
         write_command_with_data(&mut lcd, 0x3A, &[0x55]);
@@ -2175,24 +2626,33 @@ mod tests {
         let mut lcd = bus_ready_ili9341();
         write_command_with_data(&mut lcd, 0x3A, &[0x55]);
 
-        lcd.write_command(0x04).expect("read id command should succeed");
-        assert_eq!(lcd.read_data(4).expect("id read should succeed"), vec![0x00, 0x00, 0x93, 0x41]);
+        lcd.write_command(0x04)
+            .expect("read id command should succeed");
+        assert_eq!(
+            lcd.read_data(4).expect("id read should succeed"),
+            vec![0x00, 0x00, 0x93, 0x41]
+        );
 
         lcd.write_command(0x0C).expect("read colmod should succeed");
-        assert_eq!(lcd.read_data(2).expect("colmod read should succeed"), vec![0x00, 0x55]);
+        assert_eq!(
+            lcd.read_data(2).expect("colmod read should succeed"),
+            vec![0x00, 0x55]
+        );
     }
 
     #[test]
     fn ili9341_madctl_rotation_changes_visible_mapping() {
         let mut lcd = VirtualLcd::new(fast_config()).expect("config should be valid");
         lcd.init().expect("init should succeed");
-        lcd.draw_pixel(1, 0, Color::RED).expect("pixel draw should succeed");
+        lcd.draw_pixel(1, 0, Color::RED)
+            .expect("pixel draw should succeed");
         lcd.present().expect("present should succeed");
         wait_until_visible(&mut lcd);
 
         assert_eq!(lcd.visible_frame().get_pixel(1, 0), Some(Color::RED));
 
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
         write_command_with_data(&mut lcd, 0x36, &[0x20]);
 
         assert_eq!(lcd.visible_frame().get_pixel(1, 0), Some(Color::BLACK));
@@ -2211,7 +2671,8 @@ mod tests {
         lcd.present().expect("present should succeed");
         wait_until_visible(&mut lcd);
 
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
         write_command_with_data(&mut lcd, 0x33, &[0x00, 0x00, 0x00, 0x04, 0x00, 0x00]);
         write_command_with_data(&mut lcd, 0x37, &[0x00, 0x01]);
 
@@ -2224,7 +2685,8 @@ mod tests {
     #[test]
     fn ssd1306_common_init_sequence_is_accepted() {
         let mut lcd = VirtualLcd::new(fast_ssd1306_config()).expect("config should be valid");
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
 
         lcd.write_command(0xAE).expect("display off should succeed");
         write_command_with_data(&mut lcd, 0xD5, &[0x80]);
@@ -2233,14 +2695,18 @@ mod tests {
         lcd.write_command(0x40).expect("start line should succeed");
         write_command_with_data(&mut lcd, 0x8D, &[0x14]);
         write_command_with_data(&mut lcd, 0x20, &[0x00]);
-        lcd.write_command(0xA1).expect("segment remap should succeed");
-        lcd.write_command(0xC8).expect("com scan reverse should succeed");
+        lcd.write_command(0xA1)
+            .expect("segment remap should succeed");
+        lcd.write_command(0xC8)
+            .expect("com scan reverse should succeed");
         write_command_with_data(&mut lcd, 0xDA, &[0x12]);
         write_command_with_data(&mut lcd, 0x81, &[0xCF]);
         write_command_with_data(&mut lcd, 0xD9, &[0xF1]);
         write_command_with_data(&mut lcd, 0xDB, &[0x40]);
-        lcd.write_command(0xA4).expect("display follow ram should succeed");
-        lcd.write_command(0xA6).expect("normal display should succeed");
+        lcd.write_command(0xA4)
+            .expect("display follow ram should succeed");
+        lcd.write_command(0xA6)
+            .expect("normal display should succeed");
         lcd.write_command(0xAF).expect("display on should succeed");
     }
 
@@ -2249,8 +2715,10 @@ mod tests {
         let mut lcd = bus_ready_ssd1306();
 
         lcd.write_command(0xB0).expect("page select should succeed");
-        lcd.write_command(0x00).expect("lower column should succeed");
-        lcd.write_command(0x10).expect("upper column should succeed");
+        lcd.write_command(0x00)
+            .expect("lower column should succeed");
+        lcd.write_command(0x10)
+            .expect("upper column should succeed");
         lcd.write_data(&[0b0000_0011, 0b0000_0100])
             .expect("gddram write should succeed");
 
@@ -2282,18 +2750,23 @@ mod tests {
     fn ssd1306_display_start_line_and_remap_affect_visible_output() {
         let mut lcd = bus_ready_ssd1306();
         lcd.write_command(0xB0).expect("page select should succeed");
-        lcd.write_command(0x00).expect("lower column should succeed");
-        lcd.write_command(0x10).expect("upper column should succeed");
-        lcd.write_data(&[0b0000_0001]).expect("gddram write should succeed");
+        lcd.write_command(0x00)
+            .expect("lower column should succeed");
+        lcd.write_command(0x10)
+            .expect("upper column should succeed");
+        lcd.write_data(&[0b0000_0001])
+            .expect("gddram write should succeed");
         wait_until_visible(&mut lcd);
 
         assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::WHITE));
 
-        lcd.write_command(0x41).expect("start line shift should succeed");
+        lcd.write_command(0x41)
+            .expect("start line shift should succeed");
         assert_eq!(lcd.visible_frame().get_pixel(0, 0), Some(Color::BLACK));
         assert_eq!(lcd.visible_frame().get_pixel(0, 7), Some(Color::WHITE));
 
-        lcd.write_command(0xA1).expect("segment remap should succeed");
+        lcd.write_command(0xA1)
+            .expect("segment remap should succeed");
         assert_eq!(lcd.visible_frame().get_pixel(7, 7), Some(Color::WHITE));
     }
 
@@ -2304,7 +2777,9 @@ mod tests {
 
         assert!(matches!(
             VirtualLcd::new(config),
-            Err(LcdError::InvalidConfig("display dimensions must be non-zero"))
+            Err(LcdError::InvalidConfig(
+                "display dimensions must be non-zero"
+            ))
         ));
     }
 
@@ -2315,7 +2790,9 @@ mod tests {
 
         assert!(matches!(
             VirtualLcd::new(config),
-            Err(LcdError::InvalidConfig("ssd1306 height must be a multiple of 8"))
+            Err(LcdError::InvalidConfig(
+                "ssd1306 height must be a multiple of 8"
+            ))
         ));
     }
 
@@ -2335,11 +2812,14 @@ mod tests {
     #[test]
     fn write_data_without_command_reports_bus_violation() {
         let mut lcd = VirtualLcd::new(fast_config()).expect("config should be valid");
-        lcd.set_pin(PinId::Cs, false).expect("CS should be writable");
+        lcd.set_pin(PinId::Cs, false)
+            .expect("CS should be writable");
 
         assert_eq!(
             lcd.write_data(&[0x12]),
-            Err(LcdError::BusViolation("data write without an active command"))
+            Err(LcdError::BusViolation(
+                "data write without an active command"
+            ))
         );
     }
 

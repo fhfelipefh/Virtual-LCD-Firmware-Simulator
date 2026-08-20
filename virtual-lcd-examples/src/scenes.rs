@@ -59,7 +59,11 @@ pub fn startup(lcd: &mut VirtualLcd, frame: u32) -> LcdResult<()> {
     let cy = LCD_HEIGHT as i32 / 2 - 18;
     for radius in (16..90).step_by(14) {
         let glow = ((frame as f32) * 0.05 + radius as f32 * 0.08).sin() * 0.5 + 0.5;
-        let color = mix_color(Color::rgb(24, 60, 92), Color::rgb(88, 255, 228), glow * 0.65);
+        let color = mix_color(
+            Color::rgb(24, 60, 92),
+            Color::rgb(88, 255, 228),
+            glow * 0.65,
+        );
         draw_circle(lcd, cx, cy, radius, color)?;
     }
 
@@ -106,7 +110,13 @@ pub fn startup(lcd: &mut VirtualLcd, frame: u32) -> LcdResult<()> {
         let orbit = 36.0 + (index % 3) as f32 * 18.0;
         let px = cx + (angle.cos() * orbit) as i32;
         let py = cy + (angle.sin() * orbit) as i32;
-        draw_blip(lcd, px, py, 1 + (index % 2) as i32, Color::rgb(96, 214, 255))?;
+        draw_blip(
+            lcd,
+            px,
+            py,
+            1 + (index % 2) as i32,
+            Color::rgb(96, 214, 255),
+        )?;
     }
 
     Ok(())
@@ -137,7 +147,14 @@ pub fn gameboy_boot(lcd: &mut VirtualLcd, frame: u32) -> LcdResult<()> {
     let logo_y = (start_y as f32 + (end_y - start_y) as f32 * eased).round() as i32;
 
     if logo_y < 144 {
-        draw_text(lcd, logo_x, logo_y.max(0) as u16, logo_scale, text, logo_text)?;
+        draw_text(
+            lcd,
+            logo_x,
+            logo_y.max(0) as u16,
+            logo_scale,
+            text,
+            logo_text,
+        )?;
     }
 
     Ok(())
@@ -223,7 +240,13 @@ fn draw_level_bank(
     }
 
     let marker_y = inner_y + ((frame * 3) % (inner_h as u32 - 4)) as u16;
-    lcd.fill_rect(inner_x + inner_w - 6, marker_y, 4, 4, Color::rgb(255, 120, 120))?;
+    lcd.fill_rect(
+        inner_x + inner_w - 6,
+        marker_y,
+        4,
+        4,
+        Color::rgb(255, 120, 120),
+    )?;
     Ok(())
 }
 
@@ -344,15 +367,28 @@ fn draw_telemetry(
         prev = Some((px, py));
 
         if sample % 9 == 0 {
-            lcd.fill_rect(px.saturating_sub(1), py.saturating_sub(1), 3, 3, Color::rgb(255, 210, 120))?;
+            lcd.fill_rect(
+                px.saturating_sub(1),
+                py.saturating_sub(1),
+                3,
+                3,
+                Color::rgb(255, 210, 120),
+            )?;
         }
     }
 
     for meter in 0..3u16 {
         let meter_y = y + 108 + meter * 16;
-        let fill = 14 + (((frame as f32 * 0.09) + meter as f32 * 1.2).sin() * 0.5 + 0.5) as u16 * 28;
+        let fill =
+            14 + (((frame as f32 * 0.09) + meter as f32 * 1.2).sin() * 0.5 + 0.5) as u16 * 28;
         lcd.fill_rect(x + 7, meter_y, width - 14, 8, Color::rgb(14, 20, 30))?;
-        lcd.fill_rect(x + 7, meter_y, fill.min(width - 14), 8, Color::rgb(92, 124, 255))?;
+        lcd.fill_rect(
+            x + 7,
+            meter_y,
+            fill.min(width - 14),
+            8,
+            Color::rgb(92, 124, 255),
+        )?;
         lcd.fill_rect(x + 7, meter_y, fill.min(18), 8, Color::rgb(255, 186, 88))?;
     }
 
@@ -382,7 +418,14 @@ fn draw_footer_cards(
         let card_x = x + 8 + card * 94;
         let card_w = if card == 2 { 86 } else { 88 };
         lcd.fill_rect(card_x, y + 8, card_w, height - 16, Color::rgb(8, 18, 24))?;
-        draw_rect_outline(lcd, card_x, y + 8, card_w, height - 16, Color::rgb(24, 58, 70))?;
+        draw_rect_outline(
+            lcd,
+            card_x,
+            y + 8,
+            card_w,
+            height - 16,
+            Color::rgb(24, 58, 70),
+        )?;
 
         for row in 0..3u16 {
             let base_y = y + 12 + row * 10;
@@ -390,7 +433,13 @@ fn draw_footer_cards(
                 + 0.5)
                 * (card_w as f32 - 16.0);
             lcd.fill_rect(card_x + 6, base_y, card_w - 12, 5, Color::rgb(10, 24, 28))?;
-            lcd.fill_rect(card_x + 6, base_y, level as u16 + 10, 5, Color::rgb(58, 224, 184))?;
+            lcd.fill_rect(
+                card_x + 6,
+                base_y,
+                level as u16 + 10,
+                5,
+                Color::rgb(58, 224, 184),
+            )?;
         }
     }
 
@@ -402,7 +451,13 @@ fn draw_footer_cards(
         } else {
             Color::rgb(42, 52, 58)
         };
-        draw_blip(lcd, indicator_x as i32 + dot as i32 * 8, y as i32 + 14, 2, color)?;
+        draw_blip(
+            lcd,
+            indicator_x as i32 + dot as i32 * 8,
+            y as i32 + 14,
+            2,
+            color,
+        )?;
     }
 
     Ok(())
@@ -464,9 +519,39 @@ fn draw_scope_grid(
         lcd.fill_rect(gx, gy + row * (gh / 6), gw, 1, Color::rgb(22, 28, 54))?;
     }
 
-    draw_scope_wave(lcd, frame, gx, gy, gw, gh, 0.11, Color::rgb(88, 232, 196), 0.0)?;
-    draw_scope_wave(lcd, frame, gx, gy, gw, gh, 0.16, Color::rgb(255, 198, 92), 1.2)?;
-    draw_scope_wave(lcd, frame, gx, gy, gw, gh, 0.07, Color::rgb(120, 160, 255), 2.4)?;
+    draw_scope_wave(
+        lcd,
+        frame,
+        gx,
+        gy,
+        gw,
+        gh,
+        0.11,
+        Color::rgb(88, 232, 196),
+        0.0,
+    )?;
+    draw_scope_wave(
+        lcd,
+        frame,
+        gx,
+        gy,
+        gw,
+        gh,
+        0.16,
+        Color::rgb(255, 198, 92),
+        1.2,
+    )?;
+    draw_scope_wave(
+        lcd,
+        frame,
+        gx,
+        gy,
+        gw,
+        gh,
+        0.07,
+        Color::rgb(120, 160, 255),
+        2.4,
+    )?;
 
     Ok(())
 }

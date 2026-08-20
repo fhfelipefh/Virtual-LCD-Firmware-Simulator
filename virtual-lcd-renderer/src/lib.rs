@@ -3,10 +3,11 @@
 use std::fs;
 use std::path::Path;
 
-use virtual_lcd_core::Framebuffer;
-use minifb::{Key, Scale, ScaleMode, Window, WindowOptions};
+use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
+use virtual_lcd_core::Framebuffer;
+use virtual_lcd_core::touch::TouchState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScreenRect {
@@ -18,7 +19,12 @@ pub struct ScreenRect {
 
 impl ScreenRect {
     pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -69,8 +75,8 @@ impl SvgFrame {
     pub fn load(path: impl AsRef<Path>, screen: ScreenRect) -> Result<Self> {
         let data = fs::read(path)?;
         let options = Options::default();
-        let tree =
-            Tree::from_data(&data, &options).map_err(|error| RendererError::SvgParse(error.to_string()))?;
+        let tree = Tree::from_data(&data, &options)
+            .map_err(|error| RendererError::SvgParse(error.to_string()))?;
         let size = tree.size().to_int_size();
         let mut pixmap = Pixmap::new(size.width(), size.height())
             .ok_or_else(|| RendererError::SvgRender("unable to allocate svg pixmap".to_string()))?;
@@ -146,6 +152,36 @@ impl WindowRenderer {
             .update_with_buffer(&self.buffer, self.frame.width, self.frame.height)?;
         Ok(())
     }
+
+    pub fn get_touch(&self, lcd_frame: &Framebuffer) -> TouchState {
+        if !self.window.get_mouse_down(MouseButton::Left) {
+            return TouchState::Released;
+        }
+
+        if let Some((mx, my)) = self.window.get_mouse_pos(MouseMode::Pass) {
+            let screen = self.frame.screen;
+            let fit_width = screen.width as f32 / lcd_frame.width() as f32;
+            let fit_height = screen.height as f32 / lcd_frame.height() as f32;
+            let scale = fit_width.min(fit_height);
+
+            let draw_width = ((lcd_frame.width() as f32 * scale).round() as usize).max(1);
+            let draw_height = ((lcd_frame.height() as f32 * scale).round() as usize).max(1);
+            let offset_x = screen.x + (screen.width.saturating_sub(draw_width)) / 2;
+            let offset_y = screen.y + (screen.height.saturating_sub(draw_height)) / 2;
+
+            if mx >= offset_x as f32 && mx < (offset_x + draw_width) as f32 {
+                if my >= offset_y as f32 && my < (offset_y + draw_height) as f32 {
+                    let tx = ((mx - offset_x as f32) / scale).round() as u16;
+                    let ty = ((my - offset_y as f32) / scale).round() as u16;
+                    return TouchState::Pressed {
+                        x: tx.min(lcd_frame.width() - 1),
+                        y: ty.min(lcd_frame.height() - 1),
+                    };
+                }
+            }
+        }
+        TouchState::Released
+    }
 }
 
 fn composite_framebuffer(
@@ -200,17 +236,25 @@ fn composite_framebuffer(
 
 #[cfg(test)]
 mod tests {
-    use super::{composite_framebuffer, ScreenRect};
+    use super::{ScreenRect, composite_framebuffer};
     use virtual_lcd_core::{Color, Framebuffer};
 
     #[test]
     fn composite_writes_inside_screen_rect() {
         let mut output = vec![0x112233; 16 * 16];
         let mut frame = Framebuffer::new(2, 2);
-        frame.set_pixel(0, 0, Color::RED).expect("pixel should be valid");
-        frame.set_pixel(1, 0, Color::GREEN).expect("pixel should be valid");
-        frame.set_pixel(0, 1, Color::BLUE).expect("pixel should be valid");
-        frame.set_pixel(1, 1, Color::WHITE).expect("pixel should be valid");
+        frame
+            .set_pixel(0, 0, Color::RED)
+            .expect("pixel should be valid");
+        frame
+            .set_pixel(1, 0, Color::GREEN)
+            .expect("pixel should be valid");
+        frame
+            .set_pixel(0, 1, Color::BLUE)
+            .expect("pixel should be valid");
+        frame
+            .set_pixel(1, 1, Color::WHITE)
+            .expect("pixel should be valid");
 
         composite_framebuffer(&mut output, 16, 16, &frame, ScreenRect::new(4, 4, 8, 8));
 

@@ -104,6 +104,37 @@ pub trait Lcd {
     fn present(&mut self) -> Result<(), Self::Error>;
 }
 
+impl<T: Lcd + ?Sized> Lcd for &mut T {
+    type Error = T::Error;
+
+    fn init(&mut self) -> Result<(), Self::Error> {
+        (**self).init()
+    }
+
+    fn clear(&mut self, color: Color) -> Result<(), Self::Error> {
+        (**self).clear(color)
+    }
+
+    fn draw_pixel(&mut self, x: u16, y: u16, color: Color) -> Result<(), Self::Error> {
+        (**self).draw_pixel(x, y, color)
+    }
+
+    fn fill_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color: Color,
+    ) -> Result<(), Self::Error> {
+        (**self).fill_rect(x, y, width, height, color)
+    }
+
+    fn present(&mut self) -> Result<(), Self::Error> {
+        (**self).present()
+    }
+}
+
 pub trait LcdBus {
     type Error;
 

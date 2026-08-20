@@ -7,6 +7,8 @@ default-run = "dashboard"
 [dependencies]
 virtual-lcd-core = { version = "0.1.5", path = "../virtual-lcd-core" }
 virtual-lcd-sdk = { version = "0.1.5", path = "../virtual-lcd-sdk" }
+virtual-lcd-embedded-graphics = { path = "../virtual-lcd-embedded-graphics" }
+embedded-graphics = "0.8.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 virtual-lcd-renderer = { version = "0.1.5", path = "../virtual-lcd-renderer" }

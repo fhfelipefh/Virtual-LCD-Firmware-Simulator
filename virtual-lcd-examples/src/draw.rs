@@ -36,8 +36,7 @@ pub fn draw_particles(lcd: &mut VirtualLcd, frame: u32, count: u32) -> LcdResult
         let speed = 1 + (seed & 0x3);
         let x = ((seed >> 8).wrapping_add(frame.wrapping_mul(speed)) % LCD_WIDTH as u32) as u16;
         let y = (((seed >> 18).wrapping_mul(3)).wrapping_add(frame.wrapping_mul(speed / 2 + 1))
-            % (LCD_HEIGHT as u32 - 56))
-            as u16
+            % (LCD_HEIGHT as u32 - 56)) as u16
             + 28;
         let color = if index % 5 == 0 {
             Color::rgb(255, 186, 104)
@@ -115,7 +114,13 @@ pub fn draw_line(
     Ok(())
 }
 
-pub fn draw_circle(lcd: &mut VirtualLcd, cx: i32, cy: i32, radius: i32, color: Color) -> LcdResult<()> {
+pub fn draw_circle(
+    lcd: &mut VirtualLcd,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    color: Color,
+) -> LcdResult<()> {
     let mut x = radius;
     let mut y = 0;
     let mut err = 1 - x;
@@ -146,7 +151,13 @@ pub fn draw_circle(lcd: &mut VirtualLcd, cx: i32, cy: i32, radius: i32, color: C
     Ok(())
 }
 
-pub fn draw_blip(lcd: &mut VirtualLcd, cx: i32, cy: i32, radius: i32, color: Color) -> LcdResult<()> {
+pub fn draw_blip(
+    lcd: &mut VirtualLcd,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    color: Color,
+) -> LcdResult<()> {
     for y in -radius..=radius {
         for x in -radius..=radius {
             if x * x + y * y <= radius * radius {

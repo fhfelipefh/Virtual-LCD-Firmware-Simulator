@@ -1,0 +1,9 @@
+[package]
+name = "virtual-lcd-embedded-graphics"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+embedded-graphics-core = "0.4.0"
+virtual-lcd-sdk = { path = "../virtual-lcd-sdk" }
+virtual-lcd-core = { path = "../virtual-lcd-core" }
