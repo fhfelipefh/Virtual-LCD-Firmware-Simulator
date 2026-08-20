@@ -1304,7 +1304,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual-lcd-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "image",
  "instant",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "virtual-lcd-renderer"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "minifb",
  "resvg",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "virtual-lcd-sdk"
-version = "0.1.5"
+version = "0.1.6"
 
 [[package]]
 name = "virtual-lcd-web"
