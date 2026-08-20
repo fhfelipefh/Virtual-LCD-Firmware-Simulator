@@ -316,17 +316,6 @@ SVG frames in `frames/` are matched by aspect ratio at runtime:
 
 ---
 
-## 🤖 Automatic Publishing
-
-Pushes to `main` trigger `.github/workflows/publish-crates.yml` which:
-
-1. Auto-increments patch version on all `virtual-lcd-*` crates
-2. Runs `cargo test`
-3. Commits the version bump and pushes
-4. Publishes to `crates.io` via Trusted Publishing
-
----
-
 ## 📁 Project Structure
 
 ```text
