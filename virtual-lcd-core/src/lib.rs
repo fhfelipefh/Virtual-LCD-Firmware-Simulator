@@ -2837,4 +2837,56 @@ mod tests {
             })
         );
     }
+    #[test]
+    fn draw_window_from_origin_error_cases() {
+        let config = fast_config(); // width: 4, height: 4
+
+        // Valid window
+        let valid = DrawWindow::from_origin(0, 0, 4, 4, &config);
+        assert_eq!(
+            valid,
+            Ok(DrawWindow {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 4,
+            })
+        );
+
+        // Zero width
+        assert_eq!(
+            DrawWindow::from_origin(0, 0, 0, 2, &config),
+            Err(LcdError::InvalidWindow)
+        );
+
+        // Zero height
+        assert_eq!(
+            DrawWindow::from_origin(0, 0, 2, 0, &config),
+            Err(LcdError::InvalidWindow)
+        );
+
+        // Integer overflow in x end calculation
+        assert_eq!(
+            DrawWindow::from_origin(u16::MAX, 0, 10, 2, &config),
+            Err(LcdError::OutOfBounds)
+        );
+
+        // Integer overflow in y end calculation
+        assert_eq!(
+            DrawWindow::from_origin(0, u16::MAX, 2, 10, &config),
+            Err(LcdError::OutOfBounds)
+        );
+
+        // Out of bounds: x + width > config.width
+        assert_eq!(
+            DrawWindow::from_origin(1, 0, 4, 2, &config),
+            Err(LcdError::OutOfBounds)
+        );
+
+        // Out of bounds: y + height > config.height
+        assert_eq!(
+            DrawWindow::from_origin(0, 1, 2, 4, &config),
+            Err(LcdError::OutOfBounds)
+        );
+    }
 }
